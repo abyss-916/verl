@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 公共路径与默认（被 run/*.sh source）。按服务器实际改。
+# 公共路径与默认。被 run/*.sh 自动 source —— 只 export 到当前会话，**不写全局/~/.bashrc、不动系统**（共享服务器安全）。
+# ⚠️ 别把 API key 等机密写进本文件（已入 git 仓库）！用当场 export：export DEEPSEEK_API_KEY=... / export DASHSCOPE_API_KEY=...
 export PROJ=${PROJ:-/data/liujiachen/verl/qwen3_4b_distill}
 export MODELS=${MODELS:-/data/liujiachen/models}
 export DATA=${DATA:-/data/liujiachen/datasets}
