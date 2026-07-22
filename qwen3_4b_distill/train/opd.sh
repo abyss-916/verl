@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# On-Policy Distillation（加分/stretch）| student Qwen3-4B-Base ← teacher Qwen3-8B | 2×3090
+# On-Policy Distillation（加分/stretch）| student Qwen3-4B ← teacher Qwen3-8B | 2×3090
 # 改编自 verl/examples/on_policy_distillation_trainer/run_qwen3_8b_fsdp.sh
 # ⚠️ 2×3090(48GB) 上 teacher(8B)+student(4B)+vLLM 显存极紧，很可能 OOM。
 #    必须 TEST=1 起；OOM 就退回 train/sft.sh（off-policy 序列蒸馏），把 OPD 作"尝试+分析"写进报告。
 set -xeuo pipefail
 
-STUDENT_MODEL=${STUDENT_MODEL:-/data/liujiachen/models/Qwen3-4B-Base}
+STUDENT_MODEL=${STUDENT_MODEL:-/data/liujiachen/models/Qwen3-4B}
 TEACHER_MODEL=${TEACHER_MODEL:-/data/liujiachen/models/Qwen3-8B}
 DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/olymmath}
 EXP=${EXP:-opd_4b_from_8b}

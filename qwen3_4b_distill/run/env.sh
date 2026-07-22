@@ -23,7 +23,7 @@ export WANDB_DIR=${WANDB_DIR:-$LOGS/wandb}
 export WANDB_MODE=${WANDB_MODE:-offline}   # 默认离线（免登录、不卡）；想上传设 WANDB_MODE=online 并先 wandb login
 mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
 
-export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B-Base}
+export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B}   # 唯一 student=Qwen3-4B(instruct,带 thinking+chat 模板);不用 Base 版
 export TEACHER=${TEACHER:-$MODELS/Qwen3-8B}
 
 # 扩展 benchmark（加分，held-out eval；run/05_extended.sh 用）

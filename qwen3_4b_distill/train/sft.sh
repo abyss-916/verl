@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# off-policy 序列蒸馏 SFT | Qwen3-4B-Base | 2×3090 | verl sft_trainer
+# off-policy 序列蒸馏 SFT | Qwen3-4B | 2×3090 | verl sft_trainer
 # 改编自 verl/examples/sft/gsm8k/run_qwen3_8b_fsdp.sh
 # 用法（服务器）：
 #   EXP=sft_standard_cot DATA_DIR=/data/liujiachen/datasets/distill/standard_cot bash train/sft.sh
 #   TEST=1 EXP=... DATA_DIR=... bash train/sft.sh      # 极小配置先验证不 OOM
 set -xeuo pipefail
 
-MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B-Base}
+MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}
 DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/distill/standard_cot}
 EXP=${EXP:-sft_standard_cot}
 SAVE=${SAVE:-/data/liujiachen/checkpoints/$EXP}
