@@ -9,7 +9,7 @@ set -xeuo pipefail
 MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B-Base}   # 建议用 SFT 后 ckpt
 DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/olymmath}          # RL parquet（含 ground_truth）
 EXP=${EXP:-grpo_olymmath}
-REWARD=${REWARD:-/data/liujiachen/verl/projects/qwen3_4b_distill/reward/math_reward.py}
+REWARD=${REWARD:-/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py}
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
 

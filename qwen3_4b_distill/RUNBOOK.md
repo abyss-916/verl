@@ -13,7 +13,7 @@
 ```bash
 # env: conda activate llm；已按 doc/环境依赖安装清单.md 装好；verl 在 /data/liujiachen/verl
 # 下模型（见项目 doc/下载部署清单.md）：Qwen3-4B-Base（student）、Qwen3-8B（teacher）
-cd /data/liujiachen/verl/projects/qwen3_4b_distill
+cd /data/liujiachen/verl/qwen3_4b_distill
 bash run/00_smoke.sh          # 自检 + verl 入口核对
 ```
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 公共路径与默认（被 run/*.sh source）。按服务器实际改。
-export PROJ=${PROJ:-/data/liujiachen/verl/projects/qwen3_4b_distill}
+export PROJ=${PROJ:-/data/liujiachen/verl/qwen3_4b_distill}
 export MODELS=${MODELS:-/data/liujiachen/models}
 export DATA=${DATA:-/data/liujiachen/datasets}
 export CKPT=${CKPT:-/data/liujiachen/checkpoints}

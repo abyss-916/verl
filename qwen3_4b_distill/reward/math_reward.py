@@ -3,7 +3,7 @@
 verl 的 RewardManager 会以固定签名调用：
     compute_score(data_source, solution_str, ground_truth, extra_info=None) -> float
 GRPO/eval 挂载方式（命令行）：
-    custom_reward_function.path=/data/liujiachen/verl/projects/qwen3_4b_distill/reward/math_reward.py
+    custom_reward_function.path=/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py
     custom_reward_function.name=compute_score
 """
 

@@ -1,4 +1,4 @@
-# projects/qwen3_4b_distill — 夏令营课题代码（在 verl fork 之上）
+# qwen3_4b_distill — 夏令营课题代码（在 verl fork 之上）
 
 课题：研究 **Qwen3-4B** 的蒸馏 pipeline `distill → metrics → sft → sft_eval → grpo → grpo_eval`，
 核心理念**不只报 accuracy，要解释为什么变**。verl 负责训练/RL/评测，本目录负责**数据构造 + 数据度量 + 编排 + 归因**。
@@ -8,7 +8,7 @@
 ## 服务器路径约定
 | 变量 | 默认 |
 |---|---|
-| verl 仓 | `/data/liujiachen/verl`（本目录在其下 `projects/qwen3_4b_distill/`） |
+| verl 仓 | `/data/liujiachen/verl`（本目录在其下 `qwen3_4b_distill/`） |
 | 模型 | `/data/liujiachen/models/`（`Qwen3-4B-Base`、`Qwen3-8B`…） |
 | 数据 | `/data/liujiachen/datasets/`（verl parquet） |
 | ckpt | `/data/liujiachen/checkpoints/` |
