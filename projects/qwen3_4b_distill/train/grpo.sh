@@ -10,6 +10,8 @@ MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B-Base}   # 建议用 SF
 DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/olymmath}          # RL parquet（含 ground_truth）
 EXP=${EXP:-grpo_olymmath}
 REWARD=${REWARD:-/data/liujiachen/verl/projects/qwen3_4b_distill/reward/math_reward.py}
+CKPT=${CKPT:-/data/liujiachen/checkpoints}
+SAVE=${SAVE:-$CKPT/$EXP}
 
 if [ "${TEST:-0}" = "1" ]; then
   TBS=8; MINI=8; RESP=256; N=4; EPOCHS=1
@@ -47,6 +49,8 @@ python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.n=$N \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.enable_chunked_prefill=False \
+  actor_rollout_ref.actor.checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
+  trainer.default_local_dir=$SAVE \
   trainer.n_gpus_per_node=2 \
   trainer.nnodes=1 \
   trainer.total_epochs=$EPOCHS \

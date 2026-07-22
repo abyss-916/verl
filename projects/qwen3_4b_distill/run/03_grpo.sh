@@ -6,14 +6,14 @@ source "$(dirname "$0")/env.sh"
 
 FROM=${FROM:-sft_standard_cot}                    # 起点 SFT 实验名
 EXP=${EXP:-grpo_from_${FROM}}
-MODEL_PATH=${MODEL_PATH:-$CKPT/$FROM}
+MODEL_PATH=${MODEL_PATH:-$(latest_hf "$CKPT/$FROM")}   # SFT 后的 HF 权重目录
 
 # GRPO（OlymMATH，math-verify reward）
 MODEL_PATH="$MODEL_PATH" DATA_DIR="$DATA/olymmath" EXP="$EXP" bash "$PROJ/train/grpo.sh"
 
 # grpo_eval + 与 base/SFT 三方对照
 python "$PROJ/eval/eval_math.py" \
-  --model "$CKPT/$EXP" --data "$DATA/olymmath/test.parquet" \
+  --model "$(latest_hf "$CKPT/$EXP")" --data "$DATA/olymmath/test.parquet" \
   --n "${N:-8}" --out "$LOGS/eval/olymmath_$EXP"
 
 echo "GRPO 完成：$LOGS/eval/olymmath_$EXP/summary.json（对比 base / sft_$FROM 得三方结果）"

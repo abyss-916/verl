@@ -9,6 +9,8 @@ STUDENT_MODEL=${STUDENT_MODEL:-/data/liujiachen/models/Qwen3-4B-Base}
 TEACHER_MODEL=${TEACHER_MODEL:-/data/liujiachen/models/Qwen3-8B}
 DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/olymmath}
 EXP=${EXP:-opd_4b_from_8b}
+CKPT=${CKPT:-/data/liujiachen/checkpoints}
+SAVE=${SAVE:-$CKPT/$EXP}
 
 NGPUS=${NGPUS:-2}                       # student/trainer 资源
 TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}   # teacher 独立推理池（尽量压 1 卡）
@@ -57,6 +59,8 @@ python3 -m verl.trainer.main_ppo \
   distillation.distillation_loss.topk=$TOPK \
   distillation.distillation_loss.use_task_rewards=False \
   distillation.distillation_loss.use_policy_gradient=$USE_PG \
+  actor_rollout_ref.actor.checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
+  trainer.default_local_dir=$SAVE \
   trainer.balance_batch=True \
   trainer.n_gpus_per_node=$NGPUS \
   trainer.nnodes=1 \

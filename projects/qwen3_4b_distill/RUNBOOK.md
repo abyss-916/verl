@@ -46,8 +46,8 @@ TEST=1 EXP=opd_4b_from_8b DATA_DIR=$DATA/olymmath bash train/opd.sh
 ---
 
 ## 常见坑
-- **SFT ckpt 加载**：verl `sft_trainer` 存的 checkpoint 若非 HF 目录，vLLM eval 前需指到具体 `global_step_*` 子目录，或用 `verl.model_merger` 合并成 HF 权重。首次 SFT 后 `ls $CKPT/sft_standard_cot/` 确认结构。
-- **OlymMATH 列名**：`prepare_math.py` 按常见名（problem/answer）猜；`load_dataset` 后脚本会打印 splits，若列名不符改 `Q_KEYS/A_KEYS`。
+- **SFT/GRPO ckpt（已解决）**：训练脚本已加 `checkpoint.save_contents=[...,hf_model]`，HF 全权重会存到 `<ckpt>/global_step_<N>/huggingface/`。run 脚本用 `latest_hf` 自动指到最新那个供 eval / 从 SFT 起 GRPO。代价：每个 save 存一份全权重占盘（默认 keep 全部），盘紧可加 `trainer.max_actor_ckpt_to_keep` / `checkpoint.max_ckpt_to_keep`。
+- **OlymMATH（已解决）**：列 = `problem/answer/subject/unique_id`（脚本默认已对）；**config 小写** `en-hard/en-easy/zh-hard/zh-easy/lean`；**仅 test split**（train 复用 test）。默认 `MATH_SUBSET=en-hard`。
 - **code（LiveCodeBench）**：评测/GRPO 需 sandbox。起 verl `sandbox_fusion` 服务后按 `train/grpo.sh` 注释接；或用 LCB 官方 harness。math 是主线、可独立跑通。
 - **OOM**：降 `MB`/`RESP`/`train_batch_size`；GRPO 确认 `param_offload/optimizer_offload=True`、rollout `TP=1`、`gpu_memory_utilization` 调低；OPD 不行就退回 SFT。
 - **wandb**：不想上传设 `WANDB_MODE=offline` 或把 `trainer.logger='["console"]'`。

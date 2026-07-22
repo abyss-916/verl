@@ -41,6 +41,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   model.path=$MODEL_PATH \
   model.use_remove_padding=true \
   trainer.default_local_dir=$SAVE \
+  checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
   trainer.project_name=qwen3-4b-distill \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \

@@ -49,7 +49,8 @@ def make_map_fn(split, data_source):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--hf", default="RUC-AIBOX/OlymMATH", help="HF 数据集名或本地路径")
-    ap.add_argument("--subset", default=None, help="HF config/subset（按数据集实际，OlymMATH 如 EN-HARD）")
+    ap.add_argument("--subset", default="en-hard",
+                    help="HF config：OlymMATH 为 en-hard/en-easy/zh-hard/zh-easy/lean（小写）。OlymMATH 仅 test split（列 problem/answer/subject/unique_id）")
     ap.add_argument("--train_split", default=None, help="作训练的 split；OlymMATH 常无 train，可复用 test")
     ap.add_argument("--test_split", default="test")
     ap.add_argument("--out", default="/data/liujiachen/datasets/olymmath")

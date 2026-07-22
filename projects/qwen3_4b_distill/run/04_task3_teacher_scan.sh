@@ -21,7 +21,7 @@ for T in $TEACHERS; do
   EXP="sft_teacher_$T" DATA_DIR="$DATA/distill/teacher_$T" bash "$PROJ/train/sft.sh"
 
   python "$PROJ/eval/eval_math.py" \
-    --model "$CKPT/sft_teacher_$T" --data "$DATA/olymmath/test.parquet" \
+    --model "$(latest_hf "$CKPT/sft_teacher_$T")" --data "$DATA/olymmath/test.parquet" \
     --n "${N:-8}" --out "$LOGS/eval/teacher_$T"
 done
 
