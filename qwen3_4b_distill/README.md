@@ -35,12 +35,14 @@
 | `run/03_grpo.sh` | GRPO + grpo_eval（后台跑） |
 | `run/04_task3_teacher_scan.sh` | 任务三：teacher 强度扫描（off-policy） |
 | `run/05_extended.sh` | 扩展 benchmark base eval：code(LiveCodeBench) + mc(MMLU-Pro/SuperGPQA) + AIME |
+| `run/06_scaling.sh` | 数据 scaling 研究：standard_cot × {500/2000/7500} 种子，画 accuracy–数据量曲线 |
 
 `distill/generate_cot.py` 三法（standard_cot / reverse / question_aug）**均已实现**。
 
-**其他模块（初稿）**：`metrics/attribution.py`（归因：数据指标↔表现相关性，课题"解释 why"核心）｜
+**其他模块（初稿）**：`metrics/attribution.py`（归因：数据指标↔表现相关性）+ `metrics/slice_eval.py`（**深度归因**：按 level/type 切片准确率 + dump 错例做错误分析）｜
 `reward/code_reward.py` + `eval/eval_code.py`（code 判分/评测，复用 verl prime_code/sandbox）｜
-`data_preprocess/prepare_mc.py` + `eval/eval_mc.py`（选择题类：MMLU-Pro/SuperGPQA）。
+`data_preprocess/prepare_mc.py` + `eval/eval_mc.py`（选择题类：MMLU-Pro/SuperGPQA）｜
+`distill/generate_cot.py` 支持 **`--teacher_type api`**（DeepSeek/DashScope，任务三双轴，仅 off-policy）。
 > 注：初稿代码已语法自检，尚未真跑；code 测试用例格式、OOM 参数等首跑后再据实验调整。
 
 ## 2×3090 铁律

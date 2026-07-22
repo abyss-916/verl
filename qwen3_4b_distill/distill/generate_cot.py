@@ -15,6 +15,7 @@
 import argparse
 import os
 import re
+import time
 from collections import Counter
 
 import pandas as pd
@@ -62,6 +63,49 @@ class Teacher:
         sp = SamplingParams(temperature=temperature, top_p=0.95, max_tokens=max_tokens, n=n)
         outs = self.llm.generate(prompts, sp)
         return [[c.text for c in o.outputs] for o in outs]
+
+
+class APITeacher:
+    """OpenAI 兼容 API 后端（DeepSeek / 阿里 DashScope 等），接口与 Teacher.chat 一致——**仅 off-policy**。
+    reasoning 模型（如 deepseek-reasoner）的 reasoning_content 会并入 CoT。API key 从环境变量读，别写进代码。"""
+
+    def __init__(self, base_url, model, api_key, workers=16):
+        from openai import OpenAI
+
+        self.client = OpenAI(api_key=api_key, base_url=base_url)
+        self.model = model
+        self.workers = workers
+
+    def _one(self, user, temperature, max_tokens):
+        for attempt in range(4):
+            try:
+                r = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": user}],
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+                msg = r.choices[0].message
+                text = msg.content or ""
+                rc = getattr(msg, "reasoning_content", None)  # DeepSeek-R1 等把思维链单列
+                return f"{rc}\n\n{text}" if rc else text
+            except Exception:
+                if attempt == 3:
+                    return ""
+                time.sleep(2 ** attempt)  # 退避重试
+
+    def chat(self, users, temperature, max_tokens, n=1):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        out = [[] for _ in users]
+        with ThreadPoolExecutor(max_workers=self.workers) as ex:
+            fut2idx = {}
+            for i, u in enumerate(users):
+                for _ in range(n):
+                    fut2idx[ex.submit(self._one, u, temperature, max_tokens)] = i
+            for f in as_completed(fut2idx):
+                out[fut2idx[f]].append(f.result())
+        return out
 
 
 def read_seed(path):
@@ -196,12 +240,24 @@ def main():
     ap.add_argument("--max_len", type=int, default=8192)
     ap.add_argument("--max_new", type=int, default=4096)
     ap.add_argument("--limit", type=int, default=0, help=">0 时只用前 N 条种子（调试/控预算）")
+    # —— API teacher（任务三双轴用；仅 off-policy）——
+    ap.add_argument("--teacher_type", choices=["vllm", "api"], default="vllm")
+    ap.add_argument("--api_base", default="https://api.deepseek.com",
+                    help="OpenAI 兼容 base_url；DashScope=https://dashscope.aliyuncs.com/compatible-mode/v1")
+    ap.add_argument("--api_model", default="deepseek-reasoner", help="如 deepseek-reasoner / qwen-max / qwen3-235b-a22b")
+    ap.add_argument("--api_key_env", default="DEEPSEEK_API_KEY", help="存 API key 的环境变量名")
+    ap.add_argument("--workers", type=int, default=16, help="API 并发数")
     a = ap.parse_args()
 
     items = read_seed(a.seed)
     if a.limit > 0:
         items = items[: a.limit]
-    t = Teacher(a.teacher, a.tp, a.max_len)
+    if a.teacher_type == "api":
+        key = os.environ.get(a.api_key_env, "")
+        assert key, f"未设置环境变量 {a.api_key_env}（API key）"
+        t = APITeacher(a.api_base, a.api_model, key, workers=a.workers)
+    else:
+        t = Teacher(a.teacher, a.tp, a.max_len)
     rows = {"standard_cot": m_standard, "reverse": m_reverse, "question_aug": m_qaug}[a.method](t, items, a)
     save(rows, a.out, len(items), a.method)
 

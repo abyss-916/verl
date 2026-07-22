@@ -32,6 +32,11 @@ export SUPERGPQA_HF=${SUPERGPQA_HF:-m-a-p/SuperGPQA}
 export AIME_HF=${AIME_HF:-yentinglin/aime_2025}   # AIME2025，列 problem/answer（已核实可用）；置空则跳过
 export AIME_SUBSET=${AIME_SUBSET:-}               # 该集单 config，留空即可
 
+# 任务三 API teacher（off-policy 强度轴/家族轴；DeepSeek MIT / Qwen 许可）。
+# ⚠️ key 用环境变量注入，别写进代码/仓库：export DEEPSEEK_API_KEY=... / export DASHSCOPE_API_KEY=...
+export DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE:-https://api.deepseek.com}
+export QWEN_API_BASE=${QWEN_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+
 # ── 数据角色（严格分离，服务高质量课题）──
 # SEED：训练/蒸馏种子 + GRPO prompt（大数学训练集）。MATH-lighteval train ~7500，服务 task2 scaling。
 export SEED_HF=${SEED_HF:-DigitalLearningGmbH/MATH-lighteval}

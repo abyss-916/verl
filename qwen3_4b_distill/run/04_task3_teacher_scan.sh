@@ -27,3 +27,16 @@ done
 
 echo "任务三(off-policy)完成：比较不同 teacher 的 metrics_teacher_*.json 与 eval/teacher_*，验 H2（更强≠更适合）"
 echo "on-policy 对照： EXP=opd_4b_from_8b DATA_DIR=$DATA/olymmath bash train/opd.sh  （stretch，可能 OOM）"
+
+# ── 双轴扩展：API teacher（本地跑不了 32B/235B，借 API 补强度轴/家族轴，仅 off-policy）──
+# 强度轴（Qwen 同家族大模型，DashScope）：
+#   export DASHSCOPE_API_KEY=...
+#   python "$PROJ/distill/generate_cot.py" --method standard_cot --seed "$SEED_DIR/train.parquet" \
+#     --teacher_type api --api_base "$QWEN_API_BASE" --api_model qwen3-235b-a22b --api_key_env DASHSCOPE_API_KEY \
+#     --out "$DATA/distill/teacher_qwen235b" --workers 16
+# 家族/风格轴（DeepSeek-R1 reasoning teacher）：
+#   export DEEPSEEK_API_KEY=...
+#   python "$PROJ/distill/generate_cot.py" --method standard_cot --seed "$SEED_DIR/train.parquet" \
+#     --teacher_type api --api_base "$DEEPSEEK_API_BASE" --api_model deepseek-reasoner --api_key_env DEEPSEEK_API_KEY \
+#     --out "$DATA/distill/teacher_r1" --workers 16
+# 之后对 teacher_qwen235b / teacher_r1 照样 sft + eval + metrics，与本地 8B 对比。

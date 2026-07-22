@@ -49,7 +49,15 @@ def main():
     df = pd.read_parquet(a.data)
     if a.limit > 0:
         df = df.iloc[: a.limit]
-    items = [(r["prompt"][0]["content"], r["reward_model"]["ground_truth"]) for _, r in df.iterrows()]
+    def _meta(r):
+        ex = r["extra_info"] if "extra_info" in df.columns and r["extra_info"] is not None else {}
+        try:
+            ex = dict(ex)
+        except Exception:
+            ex = {}
+        return {k: ex[k] for k in ("level", "type", "subject", "difficulty") if ex.get(k) is not None}
+
+    items = [(r["prompt"][0]["content"], r["reward_model"]["ground_truth"], _meta(r)) for _, r in df.iterrows()]
 
     llm = LLM(model=a.model, trust_remote_code=True, tensor_parallel_size=a.tp,
               gpu_memory_utilization=0.85, max_model_len=a.max_new + 2048)
@@ -66,7 +74,7 @@ def main():
     out = os.path.expanduser(a.out)
     per_q, sum_avg, sum_passk = [], 0.0, 0.0
     with open(os.path.join(out, "per_question.jsonl"), "w") as f:
-        for (q, gt), o in zip(items, outs):
+        for (q, gt, meta), o in zip(items, outs):
             corr = [1 if compute_score(c.text, str(gt)) >= 1.0 else 0 for c in o.outputs]
             c = sum(corr)
             avg = c / len(corr)
@@ -74,7 +82,7 @@ def main():
             sum_avg += avg
             sum_passk += pk
             per_q.append({"avg": avg, "pass_at_k": pk, "n_correct": c})
-            f.write(json.dumps({"question": q, "gt": str(gt), "n_correct": c, "n": len(corr),
+            f.write(json.dumps({"question": q, "gt": str(gt), **meta, "n_correct": c, "n": len(corr),
                                 "avg": avg, f"pass@{k}": pk,
                                 "samples": [c.text for c in o.outputs]}, ensure_ascii=False) + "\n")
 
