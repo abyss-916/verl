@@ -34,9 +34,9 @@ echo "on-policy 对照： EXP=opd_4b_from_8b DATA_DIR=$DATA/olymmath bash train/
 #   python "$PROJ/distill/generate_cot.py" --method standard_cot --seed "$SEED_DIR/train.parquet" \
 #     --teacher_type api --api_base "$QWEN_API_BASE" --api_model qwen3-235b-a22b --api_key_env DASHSCOPE_API_KEY \
 #     --out "$DATA/distill/teacher_qwen235b" --workers 16
-# 家族/风格轴（DeepSeek-R1 reasoning teacher）：
+# 家族/风格轴（DeepSeek-V4 reasoning teacher；v4-flash 带 thinking 便宜，或 v4-pro 最强）：
 #   export DEEPSEEK_API_KEY=...
 #   python "$PROJ/distill/generate_cot.py" --method standard_cot --seed "$SEED_DIR/train.parquet" \
-#     --teacher_type api --api_base "$DEEPSEEK_API_BASE" --api_model deepseek-reasoner --api_key_env DEEPSEEK_API_KEY \
-#     --out "$DATA/distill/teacher_r1" --workers 16
+#     --teacher_type api --api_base "$DEEPSEEK_API_BASE" --api_model deepseek-v4-flash --api_key_env DEEPSEEK_API_KEY \
+#     --out "$DATA/distill/teacher_dsv4" --workers 8
 # 之后对 teacher_qwen235b / teacher_r1 照样 sft + eval + metrics，与本地 8B 对比。

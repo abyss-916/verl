@@ -244,7 +244,8 @@ def main():
     ap.add_argument("--teacher_type", choices=["vllm", "api"], default="vllm")
     ap.add_argument("--api_base", default="https://api.deepseek.com",
                     help="OpenAI 兼容 base_url；DashScope=https://dashscope.aliyuncs.com/compatible-mode/v1")
-    ap.add_argument("--api_model", default="deepseek-reasoner", help="如 deepseek-reasoner / qwen-max / qwen3-235b-a22b")
+    ap.add_argument("--api_model", default="deepseek-v4-flash",
+                    help="如 deepseek-v4-flash(带thinking,便宜) / deepseek-v4-pro(最强) / qwen3-235b-a22b；旧 deepseek-reasoner 名 2026-07-24 下线")
     ap.add_argument("--api_key_env", default="DEEPSEEK_API_KEY", help="存 API key 的环境变量名")
     ap.add_argument("--workers", type=int, default=16, help="API 并发数")
     a = ap.parse_args()
