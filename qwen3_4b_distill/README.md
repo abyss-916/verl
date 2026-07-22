@@ -34,8 +34,14 @@
 | `run/02_task2_methods.sh` | 任务二：三法造数据 + 度量 + SFT + sft_eval + 对比 |
 | `run/03_grpo.sh` | GRPO + grpo_eval（后台跑） |
 | `run/04_task3_teacher_scan.sh` | 任务三：teacher 强度扫描（off-policy） |
+| `run/05_extended.sh` | 扩展 benchmark base eval：code(LiveCodeBench) + mc(MMLU-Pro/SuperGPQA) + AIME |
 
 `distill/generate_cot.py` 三法（standard_cot / reverse / question_aug）**均已实现**。
+
+**其他模块（初稿）**：`metrics/attribution.py`（归因：数据指标↔表现相关性，课题"解释 why"核心）｜
+`reward/code_reward.py` + `eval/eval_code.py`（code 判分/评测，复用 verl prime_code/sandbox）｜
+`data_preprocess/prepare_mc.py` + `eval/eval_mc.py`（选择题类：MMLU-Pro/SuperGPQA）。
+> 注：初稿代码已语法自检，尚未真跑；code 测试用例格式、OOM 参数等首跑后再据实验调整。
 
 ## 2×3090 铁律
 - **任何训练/生成首次先 `TEST=1`**（几十条/小 batch/短 response）验证不 OOM，再放大。
