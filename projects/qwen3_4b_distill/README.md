@@ -22,8 +22,20 @@
 | — reward | `reward/math_reward.py` | OlymMATH 等自定义集的可验证奖励（复用 verl math-verify） |
 | 4 GRPO | `train/grpo.sh` | GRPO 后训练（**2×3090 适配**） |
 | 5 OPD(加分) | `train/opd.sh` | On-Policy Distillation（logit KD，**stretch**，可能 OOM） |
-| 6 度量 | `metrics/data_metrics.py` | 各方法数据的 length/diversity/PPL/IFD（**student 视角**） |
-| 7 评测 | `eval/`（待写） | pass@1/pass@k（thinking），论文对齐 |
+| 6 度量 | `metrics/data_metrics.py` `metrics/compare_methods.py` | 各方法数据 length/diversity/PPL/IFD（**student 视角**）+ 三法对比表 |
+| 7 评测 | `eval/eval_math.py` | pass@1 / avg@k / pass@k（thinking），逐题 jsonl + 论文对齐 |
+| code | `data_preprocess/prepare_code.py` | LiveCodeBench → RL parquet（评测/GRPO 需 sandbox） |
+
+## 一键编排（run/）——服务器上按 `RUNBOOK.md` 顺序跑
+| 脚本 | 阶段 |
+|---|---|
+| `run/00_smoke.sh` | 环境自检 + verl 入口核对（M0→M1） |
+| `run/01_task1_data_and_base_eval.sh` | 任务一：数据 + base eval |
+| `run/02_task2_methods.sh` | 任务二：三法造数据 + 度量 + SFT + sft_eval + 对比 |
+| `run/03_grpo.sh` | GRPO + grpo_eval（后台跑） |
+| `run/04_task3_teacher_scan.sh` | 任务三：teacher 强度扫描（off-policy） |
+
+`distill/generate_cot.py` 三法（standard_cot / reverse / question_aug）**均已实现**。
 
 ## 2×3090 铁律
 - **任何训练/生成首次先 `TEST=1`**（几十条/小 batch/短 response）验证不 OOM，再放大。
