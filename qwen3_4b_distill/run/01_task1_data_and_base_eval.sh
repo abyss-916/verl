@@ -2,6 +2,7 @@
 # 任务一：数据接入 + Qwen3-4B base 评测（与论文锚点对齐：OlymMATH HARD-EN≈13.9）
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
 # 1) SEED（训练/蒸馏种子，MATH train）→ RL parquet（train + test）
 python "$PROJ/data_preprocess/prepare_math.py" \

@@ -4,6 +4,7 @@
 # 首轮建议：LIMIT=200 TEST=1 bash run/02_task2_methods.sh  先跑通全链路。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
 SEED="$SEED_DIR/train.parquet"      # 蒸馏种子 = MATH train（非评测集）
 METHODS=${METHODS:-"standard_cot reverse question_aug"}

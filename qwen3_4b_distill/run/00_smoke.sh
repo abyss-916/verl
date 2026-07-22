@@ -2,6 +2,7 @@
 # 环境自检 + verl 入口核对（M0→M1）。装完 env 先跑这个。
 set -uo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
 echo "=== 1) 关键包导入 ==="
 python - <<'PY'

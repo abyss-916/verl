@@ -4,6 +4,7 @@
 # 全 SFT、便宜，2×3090 友好。首轮可先 SIZES="200 500" TEST=1 跑通。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
 SIZES=${SIZES:-"500 2000 7500"}
 for N in $SIZES; do

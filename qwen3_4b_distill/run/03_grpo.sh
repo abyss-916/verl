@@ -3,6 +3,7 @@
 # 首次务必： TEST=1 bash run/03_grpo.sh   验证不 OOM 再正式跑。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
 FROM=${FROM:-sft_standard_cot}                    # 起点 SFT 实验名
 EXP=${EXP:-grpo_from_${FROM}}

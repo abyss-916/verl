@@ -53,5 +53,5 @@ export EVAL_DIR=${EVAL_DIR:-$DATA/olymmath}
 latest_hf() { ls -d "$1"/global_step_*/huggingface 2>/dev/null | sort -V | tail -1; }
 export -f latest_hf
 
-mkdir -p "$DATA" "$CKPT" "$LOGS/eval" 2>/dev/null || true
+mkdir -p "$DATA" "$CKPT" "$LOGS/eval" "$LOGS/run" 2>/dev/null || true
 echo "[env] PROJ=$PROJ STUDENT=$STUDENT_BASE TEACHER=$TEACHER"

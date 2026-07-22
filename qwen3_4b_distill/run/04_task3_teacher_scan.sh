@@ -4,6 +4,7 @@
 # on-policy 对照见 train/opd.sh（stretch）。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
 SEED="$SEED_DIR/train.parquet"     # 蒸馏种子 = MATH train
 # teacher 均本地免费（名字=$MODELS 下权重目录）：强度轴 8B/14B/32B-AWQ + 专精 Math-7B。

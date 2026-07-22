@@ -6,6 +6,7 @@
 # 规模大，用 LIMIT 控采样。首轮先 base，训练后再评 SFT/GRPO ckpt。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
+mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 M=${MODEL:-$STUDENT_BASE}
 LIM=${LIMIT:-200}
 
