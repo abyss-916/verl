@@ -10,6 +10,7 @@ export LOGS=${LOGS:-/data/liujiachen/logs}
 export HF_HOME=${HF_HOME:-/data/liujiachen/hf}                       # HF 模型/数据/token 缓存
 export HF_HUB_CACHE=${HF_HUB_CACHE:-$HF_HOME/hub}
 export HF_DATASETS_CACHE=${HF_DATASETS_CACHE:-$HF_HOME/datasets}
+export HF_ENDPOINT=${HF_ENDPOINT:-https://hf-mirror.com}             # 国内走镜像下 datasets（MATH/OlymMATH/MMLU-Pro 等）
 export MODELSCOPE_CACHE=${MODELSCOPE_CACHE:-/data/liujiachen/modelscope}
 export XDG_CACHE_HOME=${XDG_CACHE_HOME:-/data/liujiachen/.cache}     # torch/triton/vllm 默认走这
 export TORCH_HOME=${TORCH_HOME:-$XDG_CACHE_HOME/torch}
