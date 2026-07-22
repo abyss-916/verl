@@ -29,9 +29,9 @@ python3 -m verl.trainer.main_ppo \
   data.max_response_length=$RESP \
   data.filter_overlong_prompts=True \
   data.truncation=error \
-  custom_reward_function.path=$REWARD \
-  custom_reward_function.name=compute_score \
-  reward_model.reward_manager=naive \
+  reward.custom_reward_function.path=$REWARD \
+  reward.custom_reward_function.name=compute_score \
+  reward.reward_manager.name=naive \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.model.use_remove_padding=True \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
@@ -66,8 +66,10 @@ python3 -m verl.trainer.main_ppo \
 # param/optimizer offload=True → 必须。 rollout TP=1（DP=2）+ gpu_mem_util=0.4 + free_cache_engine=True。
 #
 # ── code / LiveCodeBench ──
-# 去掉 custom_reward_function.*，改用沙箱执行单测：
-#   reward_model.reward_manager=prime \
-#   reward_model.sandbox_fusion.url=http://127.0.0.1:PORT/run_code \
-#   reward_model.sandbox_fusion.max_concurrent=64
-# 未起 sandbox 前，code 只做 SFT+eval，不做 GRPO。
+# 用我们的 code_reward.py（复用 verl prime_code 本地执行单测）：
+#   reward.custom_reward_function.path=/data/liujiachen/verl/qwen3_4b_distill/reward/code_reward.py \
+#   reward.custom_reward_function.name=compute_score \
+#   reward.reward_manager.name=prime
+# 想用云沙箱则设环境变量 SANDBOX_FUSION_URL，或直接：
+#   reward.sandbox_fusion.url=http://127.0.0.1:PORT/run_code   reward.sandbox_fusion.max_concurrent=64
+# 注意 code 测试用例格式（prime_code 期望 {inputs,outputs}，见 reward/code_reward.py 的转换 TODO）。

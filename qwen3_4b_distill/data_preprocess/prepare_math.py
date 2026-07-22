@@ -25,8 +25,8 @@ import datasets
 
 INSTRUCTION = "Let's think step by step and output the final answer within \\boxed{}."
 
-Q_KEYS = ["problem", "question", "prompt", "query"]
-A_KEYS = ["answer", "final_answer", "gold", "solution"]  # solution 放最后（MATH 无 answer 列时兜底）
+Q_KEYS = ["problem", "question", "prompt", "query", "Problem", "Question"]
+A_KEYS = ["answer", "final_answer", "gold", "solution", "Answer", "Solution"]  # solution 放最后（MATH 无 answer 列时兜底）；大写兼容 AIME_2024 等
 META_KEYS = ["level", "type", "subject", "unique_id"]
 
 

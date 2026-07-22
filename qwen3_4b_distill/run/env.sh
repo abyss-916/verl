@@ -29,7 +29,8 @@ export CODE_HF=${CODE_HF:-livecodebench/code_generation_lite}
 export CODE_VERSION=${CODE_VERSION:-release_v5}
 export MMLU_PRO_HF=${MMLU_PRO_HF:-TIGER-Lab/MMLU-Pro}
 export SUPERGPQA_HF=${SUPERGPQA_HF:-m-a-p/SuperGPQA}
-export AIME_HF=${AIME_HF:-}          # 需填 AIME 数据集（列 problem/answer），如 opencompass/AIME2025；空则跳过
+export AIME_HF=${AIME_HF:-yentinglin/aime_2025}   # AIME2025，列 problem/answer（已核实可用）；置空则跳过
+export AIME_SUBSET=${AIME_SUBSET:-}               # 该集单 config，留空即可
 
 # ── 数据角色（严格分离，服务高质量课题）──
 # SEED：训练/蒸馏种子 + GRPO prompt（大数学训练集）。MATH-lighteval train ~7500，服务 task2 scaling。
