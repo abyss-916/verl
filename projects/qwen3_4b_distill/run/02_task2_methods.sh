@@ -5,7 +5,7 @@
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 
-SEED="$DATA/olymmath/train.parquet"
+SEED="$SEED_DIR/train.parquet"      # 蒸馏种子 = MATH train（非评测集）
 METHODS=${METHODS:-"standard_cot reverse question_aug"}
 
 for M in $METHODS; do
@@ -23,9 +23,9 @@ for M in $METHODS; do
   # 3) SFT（首轮 TEST=1）
   EXP="sft_$M" DATA_DIR="$DATA/distill/$M" bash "$PROJ/train/sft.sh"
 
-  # 4) sft_eval（指到最新 global_step 的 HF 权重目录）
+  # 4) sft_eval 在 held-out（指到最新 global_step 的 HF 权重目录）
   python "$PROJ/eval/eval_math.py" \
-    --model "$(latest_hf "$CKPT/sft_$M")" --data "$DATA/olymmath/test.parquet" \
+    --model "$(latest_hf "$CKPT/sft_$M")" --data "$EVAL_DIR/test.parquet" \
     --n "${N:-8}" --out "$LOGS/eval/olymmath_sft_$M"
 done
 

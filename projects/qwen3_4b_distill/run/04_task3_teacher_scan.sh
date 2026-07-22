@@ -5,7 +5,7 @@
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 
-SEED="$DATA/olymmath/train.parquet"
+SEED="$SEED_DIR/train.parquet"     # 蒸馏种子 = MATH train
 TEACHERS=${TEACHERS:-"Qwen3-8B"}   # 例：TEACHERS="Qwen3-8B Qwen3-32B-4bit"
 
 for T in $TEACHERS; do
@@ -21,7 +21,7 @@ for T in $TEACHERS; do
   EXP="sft_teacher_$T" DATA_DIR="$DATA/distill/teacher_$T" bash "$PROJ/train/sft.sh"
 
   python "$PROJ/eval/eval_math.py" \
-    --model "$(latest_hf "$CKPT/sft_teacher_$T")" --data "$DATA/olymmath/test.parquet" \
+    --model "$(latest_hf "$CKPT/sft_teacher_$T")" --data "$EVAL_DIR/test.parquet" \
     --n "${N:-8}" --out "$LOGS/eval/teacher_$T"
 done
 

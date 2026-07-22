@@ -3,17 +3,20 @@
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 
-# 1) OlymMATH → RL parquet
+# 1) SEED（训练/蒸馏种子，MATH train）→ RL parquet（train + test）
 python "$PROJ/data_preprocess/prepare_math.py" \
-  --hf "$MATH_HF" --subset "$MATH_SUBSET" \
-  --out "$DATA/olymmath" --data_source olymmath
+  --hf "$SEED_HF" --subset "$SEED_SUBSET" --out "$SEED_DIR" --data_source math_seed
 
-# 2) base eval（thinking，avg@N）
+# 2) EVAL（held-out，OlymMATH）→ RL parquet（仅评测用）
+python "$PROJ/data_preprocess/prepare_math.py" \
+  --hf "$EVAL_HF" --subset "$EVAL_SUBSET" --out "$EVAL_DIR" --data_source olymmath
+
+# 3) base eval 在 held-out（thinking，avg@N），对齐锚点（OlymMATH HARD-EN≈13.9）
 python "$PROJ/eval/eval_math.py" \
-  --model "$STUDENT_BASE" --data "$DATA/olymmath/test.parquet" \
+  --model "$STUDENT_BASE" --data "$EVAL_DIR/test.parquet" \
   --n "${N:-8}" --out "$LOGS/eval/olymmath_base"
 
-# 3)（可选）LiveCodeBench 数据；code 评测需 sandbox / 官方 harness（见 train/grpo.sh、RUNBOOK.md）
+# 4)（可选）LiveCodeBench 数据；code 评测需 sandbox / 官方 harness（见 train/grpo.sh、RUNBOOK.md）
 # python "$PROJ/data_preprocess/prepare_code.py" --version release_v5 --out "$DATA/livecodebench"
 
-echo "任务一完成：base 分见 $LOGS/eval/olymmath_base/summary.json，对齐 doc/Qwen3报告_精读笔记.md 锚点"
+echo "任务一完成：SEED=$SEED_DIR（train），EVAL=$EVAL_DIR（held-out）；base 分见 $LOGS/eval/olymmath_base/summary.json"

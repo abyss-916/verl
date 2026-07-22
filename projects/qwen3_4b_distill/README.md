@@ -42,18 +42,15 @@
 - GRPO：去 ref(`use_kl_loss=False`) + 全 offload + rollout `TP=1` + 小 batch；单次量级数天。
 - 全流程服务器 `tmux/nohup` 后台跑，睡前启动、醒来看结果。
 
-## 一条最短跑通路径（math 主线）
+## 数据角色（训练/评测严格分离）
+- **SEED（训练/蒸馏种子 + GRPO prompt）= MATH-lighteval train ~7500** → `$SEED_DIR`（服务 task2 scaling）。
+- **EVAL（held-out）= OlymMATH en-hard** → `$EVAL_DIR`（只评测，绝不进训练；所有分报在它上）。
+
+## 一条最短跑通路径（math 主线，走 run 编排）
 ```bash
-# 1) 数据
-python data_preprocess/prepare_math.py --hf RUC-AIBOX/OlymMATH --subset EN-HARD \
-  --out /data/liujiachen/datasets/olymmath --data_source olymmath
-# 2) teacher 造 CoT（standard）
-python distill/generate_cot.py --method standard_cot \
-  --seed /data/liujiachen/datasets/olymmath/train.parquet \
-  --teacher /data/liujiachen/models/Qwen3-8B \
-  --out /data/liujiachen/datasets/distill/standard_cot --tp 2
-# 3) SFT（先 TEST=1）
-TEST=1 EXP=sft_standard_cot DATA_DIR=/data/liujiachen/datasets/distill/standard_cot bash train/sft.sh
-# 4) GRPO（先 TEST=1，从 SFT ckpt 起）
-TEST=1 EXP=grpo_olymmath MODEL_PATH=/data/liujiachen/checkpoints/sft_standard_cot bash train/grpo.sh
+source run/env.sh
+bash run/01_task1_data_and_base_eval.sh          # 备 SEED+EVAL 数据 + base eval(held-out)
+LIMIT=200 TEST=1 bash run/02_task2_methods.sh    # 三法造数据+度量+SFT+sft_eval(held-out)，先小规模跑通
+TEST=1 bash run/03_grpo.sh                        # GRPO(prompt=MATH) + grpo_eval(held-out)，先验证不 OOM
 ```
+详见 `RUNBOOK.md`。
