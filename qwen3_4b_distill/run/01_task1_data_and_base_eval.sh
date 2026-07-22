@@ -16,7 +16,7 @@ python "$PROJ/eval/eval_math.py" \
   --model "$STUDENT_BASE" --data "$EVAL_DIR/test.parquet" \
   --n "${N:-8}" --out "$LOGS/eval/olymmath_base"
 
-# 4)（可选）LiveCodeBench 数据；code 评测需 sandbox / 官方 harness（见 train/grpo.sh、RUNBOOK.md）
+# 4)（可选）LiveCodeBench 数据；code 评测需 sandbox / 官方 harness（见 train/grpo.sh、项目 doc/RUNBOOK.md）
 # python "$PROJ/data_preprocess/prepare_code.py" --version release_v5 --out "$DATA/livecodebench"
 
 echo "任务一完成：SEED=$SEED_DIR（train），EVAL=$EVAL_DIR（held-out）；base 分见 $LOGS/eval/olymmath_base/summary.json"

@@ -26,7 +26,7 @@
 | 7 评测 | `eval/eval_math.py` | pass@1 / avg@k / pass@k（thinking），逐题 jsonl + 论文对齐 |
 | code | `data_preprocess/prepare_code.py` | LiveCodeBench → RL parquet（评测/GRPO 需 sandbox） |
 
-## 一键编排（run/）——服务器上按 `RUNBOOK.md` 顺序跑
+## 一键编排（run/）——服务器上按 `项目 doc/RUNBOOK.md` 顺序跑
 | 脚本 | 阶段 |
 |---|---|
 | `run/00_smoke.sh` | 环境自检 + verl 入口核对（M0→M1） |
@@ -59,4 +59,4 @@ bash run/01_task1_data_and_base_eval.sh          # 备 SEED+EVAL 数据 + base e
 LIMIT=200 TEST=1 bash run/02_task2_methods.sh    # 三法造数据+度量+SFT+sft_eval(held-out)，先小规模跑通
 TEST=1 bash run/03_grpo.sh                        # GRPO(prompt=MATH) + grpo_eval(held-out)，先验证不 OOM
 ```
-详见 `RUNBOOK.md`。
+详见 `项目 doc/RUNBOOK.md`。

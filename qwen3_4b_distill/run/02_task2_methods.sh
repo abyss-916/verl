@@ -36,4 +36,4 @@ python "$PROJ/metrics/compare_methods.py" --out "$LOGS/compare_methods.md" \
        question_aug="$LOGS/metrics_question_aug.json" || true
 
 echo "任务二完成：对比表 $LOGS/compare_methods.md，各法 sft_eval 见 $LOGS/eval/"
-echo "注：SFT ckpt 若非 HF 目录，eval 前需指到具体 checkpoint 子目录或做 model_merger（见 RUNBOOK.md）"
+echo "注：SFT ckpt 若非 HF 目录，eval 前需指到具体 checkpoint 子目录或做 model_merger（见 项目 doc/RUNBOOK.md）"

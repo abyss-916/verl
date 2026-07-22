@@ -25,4 +25,4 @@ PY
 
 echo; echo "=== 3) 下一步 ==="
 echo "  bash run/01_task1_data_and_base_eval.sh   # 数据 + base eval"
-echo "  首次训练/生成务必 TEST=1 起（见 train/*.sh、RUNBOOK.md）"
+echo "  首次训练/生成务必 TEST=1 起（见 train/*.sh、项目 doc/RUNBOOK.md）"
