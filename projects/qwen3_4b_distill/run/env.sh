@@ -18,6 +18,7 @@ export VLLM_CACHE_ROOT=${VLLM_CACHE_ROOT:-$XDG_CACHE_HOME/vllm}
 export TMPDIR=${TMPDIR:-/data/liujiachen/tmp}                        # ray/临时文件，避开系统盘 /tmp
 export RAY_TMPDIR=${RAY_TMPDIR:-/data/liujiachen/tmp/ray}
 export WANDB_DIR=${WANDB_DIR:-$LOGS/wandb}
+export WANDB_MODE=${WANDB_MODE:-offline}   # 默认离线（免登录、不卡）；想上传设 WANDB_MODE=online 并先 wandb login
 mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
 
 export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B-Base}
