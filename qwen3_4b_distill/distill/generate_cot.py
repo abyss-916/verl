@@ -43,12 +43,12 @@ def msg_row(user, assistant):
 
 
 class Teacher:
-    def __init__(self, path, tp, max_len):
+    def __init__(self, path, tp, max_len, gpu_mem=0.85):
         from vllm import LLM
 
         self.llm = LLM(
             model=path, trust_remote_code=True, tensor_parallel_size=tp,
-            gpu_memory_utilization=0.85, max_model_len=max_len,
+            gpu_memory_utilization=gpu_mem, max_model_len=max_len,
         )
         self.tok = self.llm.get_tokenizer()
 
@@ -238,6 +238,7 @@ def main():
     ap.add_argument("--temp", type=float, default=0.6)
     ap.add_argument("--n", type=int, default=1)
     ap.add_argument("--max_len", type=int, default=8192)
+    ap.add_argument("--gpu_mem", type=float, default=0.85, help="vLLM 显存占比；与他人共卡时调低(如 0.7)")
     ap.add_argument("--max_new", type=int, default=4096)
     ap.add_argument("--limit", type=int, default=0, help=">0 时只用前 N 条种子（调试/控预算）")
     # —— API teacher（任务三双轴用；仅 off-policy）——
@@ -258,7 +259,7 @@ def main():
         assert key, f"未设置环境变量 {a.api_key_env}（API key）"
         t = APITeacher(a.api_base, a.api_model, key, workers=a.workers)
     else:
-        t = Teacher(a.teacher, a.tp, a.max_len)
+        t = Teacher(a.teacher, a.tp, a.max_len, a.gpu_mem)
     rows = {"standard_cot": m_standard, "reverse": m_reverse, "question_aug": m_qaug}[a.method](t, items, a)
     save(rows, a.out, len(items), a.method)
 
