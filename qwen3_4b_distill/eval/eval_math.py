@@ -66,7 +66,7 @@ def main():
     ck = {} if a.no_thinking is False else {"enable_thinking": False}
     prompts = [
         tok.apply_chat_template([{"role": "user", "content": q}], tokenize=False, add_generation_prompt=True, **ck)
-        for q, _ in items
+        for q, _, _ in items
     ]
     sp = SamplingParams(temperature=a.temp, top_p=a.top_p, top_k=a.top_k, max_tokens=a.max_new, n=a.n)
     outs = llm.generate(prompts, sp)
