@@ -17,8 +17,16 @@ from __future__ import annotations
 
 import logging
 import re
-from enum import StrEnum
 from typing import Any
+
+try:  # Python 3.11+
+    from enum import StrEnum
+except ImportError:  # Python 3.10 兼容垫片
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        def __str__(self):
+            return str(self.value)
 
 from .continuous_token import (
     ContinuousTokenBuilder,

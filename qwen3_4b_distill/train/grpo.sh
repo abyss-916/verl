@@ -50,6 +50,7 @@ python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.enable_chunked_prefill=False \
   actor_rollout_ref.actor.checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
+  trainer.use_v1=False \
   trainer.default_local_dir=$SAVE \
   trainer.n_gpus_per_node=2 \
   trainer.nnodes=1 \
