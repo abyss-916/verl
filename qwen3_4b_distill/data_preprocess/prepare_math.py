@@ -78,25 +78,35 @@ def make_map_fn(split, data_source):
 
 def _load_split(source, hf, subset, split):
     """加载单个 split → HF Dataset。
-    source=hf：走 datasets（HF/hf-mirror）；source=modelscope：走 MsDataset（国内稳，绕开外网超时）。
+    source=hf：走 datasets（HF/hf-mirror）；source=modelscope：走 MsDataset；
+    source=local：从本地目录按文件名匹配 parquet 加载（推荐——先把 parquet 抓到本地再来，绕开脚本型/多文件超时）。
     hf 支持逗号分隔多个候选 id（modelscope 时逐个尝试，任一成功即返回）。
     """
-    if source == "modelscope":
-        from modelscope.msdatasets import MsDataset
+    if source == "local":
+        import glob as _glob
 
+        files = sorted(_glob.glob(os.path.join(hf, "**", f"*{split}*.parquet"), recursive=True))
+        if not files:
+            raise FileNotFoundError(f"本地无 {split} 的 parquet: {hf}")
+        return datasets.load_dataset("parquet", data_files=files)["train"]
+    if source == "modelscope":
+        # 用 modelscope CLI 整仓下载 parquet 到本地(国内稳、不执行脚本、不受 datasets 5.0 脚本禁令影响)，再读本地 parquet。
+        import glob as _glob
+        import subprocess
+
+        data_root = os.environ.get("DATA", "/data/liujiachen/datasets")
         errs = []
         for hid in [x.strip() for x in hf.split(",") if x.strip()]:
+            local = os.path.join(data_root, "_ms_" + hid.replace("/", "__"))
+            pat = os.path.join(local, "**", f"*{split}*.parquet")
             try:
-                try:
-                    ms = MsDataset.load(hid, subset_name=subset, split=split) if subset else MsDataset.load(hid, split=split)
-                except Exception:
-                    ms = MsDataset.load(hid, split=split)  # 无 subset 兜底
-                if hasattr(ms, "to_hf_dataset"):
-                    try:
-                        return ms.to_hf_dataset()
-                    except Exception:
-                        pass
-                return datasets.Dataset.from_list([dict(ex) for ex in ms])
+                files = sorted(_glob.glob(pat, recursive=True))
+                if not files:  # 尚未下过 → 整仓拉一次(train/test 一起下)，后续 split 直接命中缓存
+                    subprocess.run(["modelscope", "download", "--dataset", hid, "--local_dir", local], check=True)
+                    files = sorted(_glob.glob(pat, recursive=True))
+                if not files:
+                    raise FileNotFoundError(f"{hid}: 下载后仍无 {split} parquet(该仓可能非 parquet 布局)")
+                return datasets.load_dataset("parquet", data_files=files)["train"]
             except Exception as e:
                 errs.append(f"{hid}: {e}")
         raise RuntimeError("; ".join(errs))
@@ -125,7 +135,7 @@ def main():
     ap.add_argument("--subset", default=None, help="config/subset：OlymMATH=en-hard 等（小写）；MATH 一般留空")
     ap.add_argument("--out", required=True)
     ap.add_argument("--data_source", required=True, help="reward 路由标识，如 math_seed / olymmath")
-    ap.add_argument("--source", default="hf", choices=["hf", "modelscope"], help="下载源：hf(mirror) / modelscope(国内稳)")
+    ap.add_argument("--source", default="hf", choices=["hf", "modelscope", "local"], help="源：hf(mirror) / modelscope / local(本地 parquet 目录)")
     a = ap.parse_args()
 
     subset = a.subset or None

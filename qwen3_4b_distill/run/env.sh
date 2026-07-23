@@ -41,10 +41,11 @@ export QWEN_API_BASE=${QWEN_API_BASE:-https://dashscope.aliyuncs.com/compatible-
 
 # ── 数据角色（严格分离，服务高质量课题）──
 # SEED：训练/蒸馏种子 + GRPO prompt（MATH train ~7500，服务 task2 scaling）。
-#   国内服务器直连 HF 常 TLS 超时 → 默认走 ModelScope（ms-swift 注册的 MATH：tastelikefeet/competition_math，含 train+test）。
-#   逗号给多候选，逐个尝试；列 problem/level/type/solution，prepare_math.py 自动解析。
+#   国内直连 HF 常超时、competition_math 又是脚本型(datasets 5.0 已禁) → 走 ModelScope 的 parquet 原生镜像
+#   AI-ModelScope/MATH-lighteval：prepare_math.py 用 modelscope CLI 整仓下 parquet 到本地再读，绕开脚本+超时。
+#   列 problem/level/type/solution，自动解析。逗号可给多候选。
 export SEED_SOURCE=${SEED_SOURCE:-modelscope}
-export SEED_HF=${SEED_HF:-tastelikefeet/competition_math,AI-ModelScope/competition_math,modelscope/competition_math}
+export SEED_HF=${SEED_HF:-AI-ModelScope/MATH-lighteval}
 export SEED_SUBSET=${SEED_SUBSET:-}
 export SEED_DIR=${SEED_DIR:-$DATA/math_seed}
 # EVAL：held-out 评测（任务一选型 OlymMATH），绝不进训练。OlymMATH 小、hf-mirror 已下通 → 保持 hf。
