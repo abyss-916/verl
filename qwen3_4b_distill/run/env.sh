@@ -40,11 +40,15 @@ export DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE:-https://api.deepseek.com}
 export QWEN_API_BASE=${QWEN_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
 
 # ── 数据角色（严格分离，服务高质量课题）──
-# SEED：训练/蒸馏种子 + GRPO prompt（大数学训练集）。MATH-lighteval train ~7500，服务 task2 scaling。
-export SEED_HF=${SEED_HF:-DigitalLearningGmbH/MATH-lighteval}
-export SEED_SUBSET=${SEED_SUBSET:-default}
+# SEED：训练/蒸馏种子 + GRPO prompt（MATH train ~7500，服务 task2 scaling）。
+#   国内服务器直连 HF 常 TLS 超时 → 默认走 ModelScope（ms-swift 注册的 MATH：tastelikefeet/competition_math，含 train+test）。
+#   逗号给多候选，逐个尝试；列 problem/level/type/solution，prepare_math.py 自动解析。
+export SEED_SOURCE=${SEED_SOURCE:-modelscope}
+export SEED_HF=${SEED_HF:-tastelikefeet/competition_math,AI-ModelScope/competition_math,modelscope/competition_math}
+export SEED_SUBSET=${SEED_SUBSET:-}
 export SEED_DIR=${SEED_DIR:-$DATA/math_seed}
-# EVAL：held-out 评测（任务一选型 OlymMATH），绝不进训练。
+# EVAL：held-out 评测（任务一选型 OlymMATH），绝不进训练。OlymMATH 小、hf-mirror 已下通 → 保持 hf。
+export EVAL_SOURCE=${EVAL_SOURCE:-hf}
 export EVAL_HF=${EVAL_HF:-RUC-AIBOX/OlymMATH}
 export EVAL_SUBSET=${EVAL_SUBSET:-en-hard}
 export EVAL_DIR=${EVAL_DIR:-$DATA/olymmath}

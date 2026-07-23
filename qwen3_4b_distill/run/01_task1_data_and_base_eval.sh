@@ -4,13 +4,13 @@ set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
 
-# 1) SEED（训练/蒸馏种子，MATH train）→ RL parquet（train + test）
+# 1) SEED（训练/蒸馏种子，MATH train）→ RL parquet（train + test）。国内默认走 ModelScope。
 python "$PROJ/data_preprocess/prepare_math.py" \
-  --hf "$SEED_HF" --subset "$SEED_SUBSET" --out "$SEED_DIR" --data_source math_seed
+  --source "$SEED_SOURCE" --hf "$SEED_HF" --subset "$SEED_SUBSET" --out "$SEED_DIR" --data_source math_seed
 
 # 2) EVAL（held-out，OlymMATH）→ RL parquet（仅评测用）
 python "$PROJ/data_preprocess/prepare_math.py" \
-  --hf "$EVAL_HF" --subset "$EVAL_SUBSET" --out "$EVAL_DIR" --data_source olymmath
+  --source "$EVAL_SOURCE" --hf "$EVAL_HF" --subset "$EVAL_SUBSET" --out "$EVAL_DIR" --data_source olymmath
 
 # 3) base eval 在 held-out（thinking，avg@N），对齐锚点（OlymMATH HARD-EN≈13.9）
 python "$PROJ/eval/eval_math.py" \

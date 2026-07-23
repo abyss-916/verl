@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import re
+import time
 
 import datasets
 
@@ -75,25 +76,84 @@ def make_map_fn(split, data_source):
     return process_fn
 
 
+def _load_split(source, hf, subset, split):
+    """加载单个 split → HF Dataset。
+    source=hf：走 datasets（HF/hf-mirror）；source=modelscope：走 MsDataset（国内稳，绕开外网超时）。
+    hf 支持逗号分隔多个候选 id（modelscope 时逐个尝试，任一成功即返回）。
+    """
+    if source == "modelscope":
+        from modelscope.msdatasets import MsDataset
+
+        errs = []
+        for hid in [x.strip() for x in hf.split(",") if x.strip()]:
+            try:
+                try:
+                    ms = MsDataset.load(hid, subset_name=subset, split=split) if subset else MsDataset.load(hid, split=split)
+                except Exception:
+                    ms = MsDataset.load(hid, split=split)  # 无 subset 兜底
+                if hasattr(ms, "to_hf_dataset"):
+                    try:
+                        return ms.to_hf_dataset()
+                    except Exception:
+                        pass
+                return datasets.Dataset.from_list([dict(ex) for ex in ms])
+            except Exception as e:
+                errs.append(f"{hid}: {e}")
+        raise RuntimeError("; ".join(errs))
+    return datasets.load_dataset(hf, subset, split=split) if subset else datasets.load_dataset(hf, split=split)
+
+
+def _load_split_retry(source, hf, subset, split, tries=4):
+    """带重试（网络抖动）；split 确实不存在则立刻抛出不重试。"""
+    last = None
+    for i in range(tries):
+        try:
+            return _load_split(source, hf, subset, split)
+        except Exception as e:
+            m = str(e).lower()
+            if "unknown split" in m or ("split" in m and "not found" in m) or ("splits" in m and "available" in m):
+                raise
+            last = e
+            print(f"[retry {i + 1}/{tries}] source={source} split={split}: {e}", flush=True)
+            time.sleep(3)
+    raise last
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hf", required=True, help="HF 数据集名或本地路径")
-    ap.add_argument("--subset", default=None, help="HF config：MATH-lighteval=default；OlymMATH=en-hard/en-easy/zh-hard/zh-easy/lean（小写）")
+    ap.add_argument("--hf", required=True, help="数据集名（HF 或 ModelScope，逗号可给多候选）或本地路径")
+    ap.add_argument("--subset", default=None, help="config/subset：OlymMATH=en-hard 等（小写）；MATH 一般留空")
     ap.add_argument("--out", required=True)
     ap.add_argument("--data_source", required=True, help="reward 路由标识，如 math_seed / olymmath")
+    ap.add_argument("--source", default="hf", choices=["hf", "modelscope"], help="下载源：hf(mirror) / modelscope(国内稳)")
     a = ap.parse_args()
 
-    ds = datasets.load_dataset(a.hf, a.subset) if a.subset else datasets.load_dataset(a.hf)
-    print("splits:", list(ds.keys()), "| columns:", ds[list(ds.keys())[0]].column_names, flush=True)
+    subset = a.subset or None
+    # 独立加载 train / test：容忍某 split 缺失（OlymMATH 无 train → 复用 test，仅占位不训练）
+    train_ds = test_ds = None
+    for split in ("train", "test"):
+        try:
+            d = _load_split_retry(a.source, a.hf, subset, split)
+            if split == "train":
+                train_ds = d
+            else:
+                test_ds = d
+        except Exception as e:
+            print(f"[warn] split={split} 加载失败（可能本就无此 split）：{e}", flush=True)
+    if train_ds is None and test_ds is None:
+        raise SystemExit("[fatal] train/test 均无法加载——检查数据集名 / 源(--source) / 网络")
+    if train_ds is None:
+        train_ds = test_ds
+    if test_ds is None:
+        test_ds = train_ds
+    print(f"loaded | train={len(train_ds)} test={len(test_ds)} | columns={train_ds.column_names}", flush=True)
 
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
-    test_key = "test" if "test" in ds else list(ds.keys())[0]
-    train_key = "train" if "train" in ds else test_key  # OlymMATH 无 train → 复用 test（仅作占位，不用于训练）
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
 
-    for name, key in [("train", train_key), ("test", test_key)]:
-        d = ds[key].map(make_map_fn(name, a.data_source), with_indices=True)
+    for name, d0 in [("train", train_ds), ("test", test_ds)]:
+        d = d0.map(make_map_fn(name, a.data_source), with_indices=True)
         d = d.remove_columns([c for c in d.column_names if c not in keep])
         d.to_parquet(os.path.join(out, f"{name}.parquet"))
         with open(os.path.join(out, f"{name}_example.json"), "w") as f:
