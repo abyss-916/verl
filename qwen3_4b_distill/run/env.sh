@@ -17,11 +17,17 @@ export XDG_CACHE_HOME=${XDG_CACHE_HOME:-/data/liujiachen/.cache}     # torch/tri
 export TORCH_HOME=${TORCH_HOME:-$XDG_CACHE_HOME/torch}
 export TRITON_CACHE_DIR=${TRITON_CACHE_DIR:-$XDG_CACHE_HOME/triton}
 export VLLM_CACHE_ROOT=${VLLM_CACHE_ROOT:-$XDG_CACHE_HOME/vllm}
+export PIP_CACHE_DIR=${PIP_CACHE_DIR:-$XDG_CACHE_HOME/pip}           # pip 缓存（默认 ~/.cache/pip 在系统盘！）
+export PIP_INDEX_URL=${PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}  # 国内 pip 镜像
+export TORCH_EXTENSIONS_DIR=${TORCH_EXTENSIONS_DIR:-$XDG_CACHE_HOME/torch_extensions}  # JIT 编译的算子（flashinfer 等）
+export TORCHINDUCTOR_CACHE_DIR=${TORCHINDUCTOR_CACHE_DIR:-$XDG_CACHE_HOME/torchinductor}  # torch.compile 缓存
+export CUDA_CACHE_PATH=${CUDA_CACHE_PATH:-$XDG_CACHE_HOME/nv}        # CUDA JIT 缓存（默认 ~/.nv）
+export HF_HUB_DOWNLOAD_TIMEOUT=${HF_HUB_DOWNLOAD_TIMEOUT:-60}        # HF 下载超时放宽，减少国内断流
 export TMPDIR=${TMPDIR:-/data/liujiachen/tmp}                        # ray/临时文件，避开系统盘 /tmp
 export RAY_TMPDIR=${RAY_TMPDIR:-/data/liujiachen/tmp/ray}
 export WANDB_DIR=${WANDB_DIR:-$LOGS/wandb}
 export WANDB_MODE=${WANDB_MODE:-offline}   # 默认离线（免登录、不卡）；想上传设 WANDB_MODE=online 并先 wandb login
-mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
+mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$PIP_CACHE_DIR" "$TORCH_EXTENSIONS_DIR" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
 
 export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B}   # 唯一 student=Qwen3-4B(instruct,带 thinking+chat 模板);不用 Base 版
 export TEACHER=${TEACHER:-$MODELS/Qwen3-8B}
