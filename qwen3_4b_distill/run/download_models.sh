@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # 下载课题所需模型到 $MODELS。**自带环境/路径声明（source env.sh）——你无需自己 export/mkdir 任何路径**。
-# 国内优先 modelscope；已存在则跳过（可断点续）。全部输出自动落 $LOGS/run/download_models.log。
+# 国内优先 modelscope；**重试直到没有 .incomplete 残留**（网络差会留半截文件，故重试）；已完整则跳过。
+# 全部输出自动落 $LOGS/run/download_models.log。
 # 用法：
-#   nohup bash download_models.sh >/dev/null 2>&1 &   # 后台下 T1 必需 4 个(~40G)
+#   nohup bash download_models.sh >/dev/null 2>&1 &   # 后台下 T1 必需 4 个(~40G)；已完整的会跳过，只补没下全的
 #   bash download_models.sh t3                        # 追加 T3(14B+32B-AWQ,~46G)
 #   bash download_models.sh all                       # 全下
 #   HF=1 bash download_models.sh                       # 改用 HF 镜像(hf-mirror)
@@ -34,23 +35,28 @@ else
   command -v modelscope >/dev/null 2>&1 || pip install -U modelscope
 fi
 
-dl() {  # $1 = repo，如 Qwen/Qwen3-8B
-  local repo="$1" dest="$MODELS/${1##*/}"
-  if [ -f "$dest/config.json" ]; then echo "跳过(已存在): ${1##*/}"; return; fi
+# 目录里有没有没下完的临时文件
+has_incomplete() { find "$1" \( -name '*.incomplete' -o -name '*.tmp' \) 2>/dev/null | grep -q .; }
+
+dl() {  # $1 = repo，如 Qwen/Qwen3-8B —— 重试直到完整（config.json 存在 且 无 .incomplete）
+  local repo="$1" dest="$MODELS/${1##*/}" try
+  if [ -f "$dest/config.json" ] && ! has_incomplete "$dest"; then echo "跳过(已完整): ${1##*/}"; return; fi
   echo "==== 下载 $repo -> $dest ===="
   mkdir -p "$dest"
-  if [ "${HF:-0}" = "1" ]; then
-    hf download "$repo" --local-dir "$dest"
-  else
-    modelscope download --model "$repo" --local_dir "$dest"
-  fi
+  for try in 1 2 3 4 5 6; do
+    if [ "${HF:-0}" = "1" ]; then hf download "$repo" --local-dir "$dest" || true
+    else modelscope download --model "$repo" --local_dir "$dest" || true; fi
+    if [ -f "$dest/config.json" ] && ! has_incomplete "$dest"; then echo "  ✓ ${1##*/} 完整"; return; fi
+    echo "  ⚠️ 第 $try 次后仍有 .incomplete，8s 后重试续下..."; sleep 8
+  done
+  echo "  ❌ ${1##*/} 多次重试仍不完整——网速太差，晚点再跑或换 HF=1"
 }
 
 for m in "${LIST[@]}"; do dl "$m"; done
 
-echo "==== 全部完成，清单如下（缺失=下载失败，重跑本脚本续下）===="
+echo "==== 结束，清单（✓=完整 / ❌=不完整需重跑本脚本续下）===="
 for m in "${LIST[@]}"; do
   d="$MODELS/${m##*/}"
-  if [ -f "$d/config.json" ]; then sz=$(du -sh "$d" 2>/dev/null | cut -f1); else sz="缺失!"; fi
-  printf "  %-28s %s\n" "${m##*/}" "$sz"
+  if [ -f "$d/config.json" ] && ! has_incomplete "$d"; then st="✓ $(du -sh "$d" 2>/dev/null | cut -f1)"; else st="❌ 不完整"; fi
+  printf "  %-28s %s\n" "${m##*/}" "$st"
 done
