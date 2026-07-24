@@ -8,6 +8,10 @@
 #   GPU_MEM=0.9 METHOD=standard_cot LIMIT=2000 nohup bash run/gen_distill.sh \
 #       > "$LOGS/run/gen_standard_cot.log" 2>&1 &
 #   # reverse 同法：METHOD=reverse（reverse 每 seed 产 2 条长链，耗时约 2 倍）
+#   # question_aug 只做数据分析、不训练 → 小规模即可：METHOD=question_aug LIMIT=500
+#   # 任务三 MVP（同种子换教师）：换 TEACHER + OUT，其余不变，事后 data_metrics 对比两份数据
+#   #   TEACHER=/data/liujiachen/models/Qwen3-14B OUT="$DATA/distill/t3_teacher14b" \
+#   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_14b.log" 2>&1 &
 set -euo pipefail
 : "${PROJ:?先 source run/env.sh}"
 : "${TEACHER:?先 source run/env.sh}"
