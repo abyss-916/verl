@@ -30,9 +30,11 @@ LR=${LR:-1e-5}
 if [ "${TEST:-0}" = "1" ]; then
   MB=1; MAXLEN=1024; EPOCHS=1
 else
-  # ⚠️ MAXLEN 必须覆盖蒸馏数据长度，否则 data.truncation=right 会把长 CoT(难题)截断，
-  #    等于把前面满预算生成保住的难样本又丢掉。教师 CoT 实测 p99≈11.6K → 默认 16384 覆盖 p99。
-  #    正式训前按该方法 gen_stats.json 的 tok_p99/tok_max 调准；显存不够时降 MB(micro-batch)，别降 MAXLEN。
+  # ⚠️ MAXLEN 必须覆盖蒸馏数据长度，否则 data.truncation=right 会把长 CoT 右截断——
+  #    保留开头、丢掉结尾 \boxed 答案，变成"没有答案的半截 CoT"坏样本(比不训还糟)。
+  #    正式训前按该方法 gen_stats.json：MAXLEN 尽量设 ≥ tok_max(而非仅 p99)；若 tok_max 太大装不下，
+  #    宁可造数据后【预删】超长行，也别让它们被截断进训练。显存不够降 MB(micro-batch)，别降 MAXLEN。
+  #    16384 覆盖实测 p99≈11.6K，仅作缺省；见 gen_stats.json 再定。
   MB=${MB:-2}; MAXLEN=${MAXLEN:-16384}; EPOCHS=${EPOCHS:-3}
 fi
 
