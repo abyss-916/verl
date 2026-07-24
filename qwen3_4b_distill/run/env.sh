@@ -35,6 +35,11 @@ export TEACHER=${TEACHER:-$MODELS/Qwen3-8B}
 # code 线（LiveCodeBench，任务一 math+code 的 code 侧）
 export CODE_HF=${CODE_HF:-livecodebench/code_generation_lite}
 export CODE_VERSION=${CODE_VERSION:-release_v5}
+# 扩展 benchmark（T4 加分/stretch，run/05_extended.sh 用；有余量才跑）
+export MMLU_PRO_HF=${MMLU_PRO_HF:-TIGER-Lab/MMLU-Pro}
+export SUPERGPQA_HF=${SUPERGPQA_HF:-m-a-p/SuperGPQA}
+export AIME_HF=${AIME_HF:-yentinglin/aime_2025}   # AIME2025，列 problem/answer；置空则跳过
+export AIME_SUBSET=${AIME_SUBSET:-}
 
 # 任务三 API teacher（off-policy 强度轴/家族轴；DeepSeek MIT / Qwen 许可）。
 # ⚠️ key 用环境变量注入，别写进代码/仓库：export DEEPSEEK_API_KEY=... / export DASHSCOPE_API_KEY=...

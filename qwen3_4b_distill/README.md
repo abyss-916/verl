@@ -41,6 +41,10 @@
 归因：`metrics/attribution.py`（数据指标↔表现相关）+ `metrics/slice_eval.py`（**深度归因**：`--by subject` 逐学科 Δ + `--vs` 配对 McNemar + 错例）。
 code 线：`prepare_code`/`eval_code`/`code_reward`（就绪门：LCB parquet 源 + sandbox + 测试用例格式首跑核对）。
 
+**T4 加分/stretch（不在 committed，有余量才跑；已写好、留作上限）**：
+`train/opd.sh`（On-Policy Distillation，logit KD；2×3090 可能 OOM，炸了也作"尝试+分析"写进报告）｜
+`data_preprocess/prepare_mc.py`+`eval/eval_mc.py`+`run/05_extended.sh`（MMLU-Pro/SuperGPQA/AIME 扩展 benchmark base eval）。
+
 ## 2×3090 铁律
 - **任何训练/生成首次先 `TEST=1`**（几十条/小 batch/短 response）验证不 OOM，再放大。
 - GRPO：去 ref(`use_kl_loss=False`) + 全 offload + rollout `TP=1` + 小 batch；单次量级数天。
