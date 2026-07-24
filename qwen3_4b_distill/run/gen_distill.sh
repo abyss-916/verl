@@ -5,10 +5,11 @@
 # 用法（服务器，先 source env.sh，且两卡都空——tp=2 需要两张卡）：
 #   source run/env.sh
 #   # 先看 nvidia-smi 定 GPU_MEM：两卡都空用 0.9；GPU0 有别人占用则相应调低(如 0.8)
-#   GPU_MEM=0.9 METHOD=standard_cot LIMIT=2000 nohup bash run/gen_distill.sh \
+#   # 三法均 LIMIT=1000（同种子预算=受控三向对比；依据 s1K=1000 / LIMO=817 的"少而精"推理蒸馏）
+#   GPU_MEM=0.9 METHOD=standard_cot LIMIT=1000 nohup bash run/gen_distill.sh \
 #       > "$LOGS/run/gen_standard_cot.log" 2>&1 &
-#   # reverse 同法：METHOD=reverse（reverse 每 seed 产 2 条长链，耗时约 2 倍）
-#   # question_aug 只做数据分析、不训练 → 小规模即可：METHOD=question_aug LIMIT=500
+#   # reverse 同法：METHOD=reverse LIMIT=1000（每 seed 2 条长链≈2× 时长；产 3 条/题多目标）
+#   # question_aug 同法：METHOD=question_aug LIMIT=1000（无 gold 靠 self-consistency k≥3，≈4×/题最重，排最后）
 #   # 任务三 MVP（同种子换教师）：换 TEACHER + OUT，其余不变，事后 data_metrics 对比两份数据
 #   #   TEACHER=/data/liujiachen/models/Qwen3-14B OUT="$DATA/distill/t3_teacher14b" \
 #   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_14b.log" 2>&1 &
@@ -17,7 +18,7 @@ set -euo pipefail
 : "${TEACHER:?先 source run/env.sh}"
 
 METHOD=${METHOD:-standard_cot}          # standard_cot / reverse / question_aug
-LIMIT=${LIMIT:-2000}                     # 正式用多少 seed
+LIMIT=${LIMIT:-1000}                     # 正式用多少 seed（三法一致=受控对比，依据 s1K/LIMO；见 README/RUNBOOK）
 SMOKE=${SMOKE:-16}                       # 冒烟 seed 数
 GPU_MEM=${GPU_MEM:-0.9}                   # 按 nvidia-smi 定：两卡空 0.9；共卡调低
 TP=${TP:-2}                              # 8B 教师满预算(40960 KV)单卡放不下 → 必须 tp=2

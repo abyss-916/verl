@@ -40,7 +40,7 @@ else
 fi
 # ⚠️ 动态批每卡 token 预算，必须 >= 最长样本；verl 缺省仅 8192，长样本会触发 seqlen_balancing.py 的 assert 崩溃(白跑)
 MAX_TOKENS=${MAX_TOKENS:-$MAXLEN}
-# 全局(优化器)batch；verl 缺省 256 → ~2000 样本一个 epoch 仅 ~8 步、3 epoch ~23 步易欠拟合。显式设小多走几步；三法须一致以公平对比
+# 全局(优化器)batch；verl 缺省 256 → ~1000 种子(过滤后~700)一个 epoch 仅 ~3 步、3 epoch ~9 步易欠拟合。显式设 32(~22 步/epoch)多走几步；三法须一致以公平对比
 TBS=${TBS:-32}
 
 extra=()
