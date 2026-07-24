@@ -3,8 +3,10 @@
 - 若设了环境变量 `SANDBOX_FUSION_URL`，改用 `sandbox_fusion`（更安全的沙箱）。
 GRPO/eval 挂载：custom_reward_function.path=/data/liujiachen/verl/qwen3_4b_distill/reward/code_reward.py
 
+⚠️ 安全（共享服务器！）：`prime_code` 会**本地执行模型生成的任意 Python**——在共享机上有风险。
+   正式跑 code 线**强烈建议先起 sandbox** 并设 `SANDBOX_FUSION_URL`，用沙箱执行，别裸跑 prime_code。
 ⚠️ 测试用例格式：prime_code 期望 APPS 式 {"inputs":[...],"outputs":[...]}（或含 fn_name）。
-   LiveCodeBench 的 public_test_cases 格式可能不同，首次跑需在此做一层转换（见 TODO）。
+   LiveCodeBench 的 public_test_cases 格式可能不同，**首次跑必须核对 _normalize_tests 的转换**（见 TODO）。
 """
 
 import json

@@ -2,13 +2,20 @@
 ⚠️ 代码判定需执行单测：GRPO/eval 走 verl 的 sandbox_fusion / prime_code（见 train/grpo.sh 注释），
    或用 LiveCodeBench 官方 harness。本脚本只负责把数据整理成 verl parquet（prompt + 测试用例）。
 
+⚠️⚠️ 数据源坑（与 MATH-lighteval 同类）：`livecodebench/code_generation_lite` 是**脚本型数据集**，
+   `datasets 5.0` 已禁用脚本加载 → `--source hf` 会报 "Dataset scripts are no longer supported" 直接崩。
+   解决：先把 LCB parquet 抓到本地（modelscope 镜像 / 官方 repo release / HF parquet 分支），再 `--source local`
+   指向该目录。首次接入前必须先确认能拿到 parquet 版本，否则本脚本跑不通。
+
 用法（服务器）：
-  python prepare_code.py --version release_v5 \
+  # 推荐：本地 parquet 目录
+  python prepare_code.py --source local --hf /data/liujiachen/datasets/_lcb_raw \
     --out /data/liujiachen/datasets/livecodebench --data_source livecodebench
 注意：LiveCodeBench 列名随版本变化，脚本会先打印实际列名，按需在 build_row 里调整。
 """
 
 import argparse
+import glob
 import json
 import os
 
@@ -42,13 +49,22 @@ def build_row(ex, idx, split, data_source):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hf", default="livecodebench/code_generation_lite")
-    ap.add_argument("--version", default="release_v5", help="LiveCodeBench version_tag")
+    ap.add_argument("--hf", default="livecodebench/code_generation_lite", help="hf 名 或 local parquet 目录")
+    ap.add_argument("--source", default="hf", choices=["hf", "local"],
+                    help="hf=直连(datasets5.0 对脚本型 LCB 会崩) / local=从本地 parquet 目录读(推荐)")
+    ap.add_argument("--version", default="release_v5", help="LiveCodeBench version_tag（仅 --source hf）")
     ap.add_argument("--out", default="/data/liujiachen/datasets/livecodebench")
     ap.add_argument("--data_source", default="livecodebench")
     a = ap.parse_args()
 
-    ds = datasets.load_dataset(a.hf, version_tag=a.version, trust_remote_code=True)
+    if a.source == "local":
+        files = sorted(glob.glob(os.path.join(os.path.expanduser(a.hf), "**", "*.parquet"), recursive=True))
+        if not files:
+            raise SystemExit(f"[fatal] 本地无 parquet：{a.hf}（先把 LCB parquet 抓到此目录）")
+        ds = {"test": datasets.load_dataset("parquet", data_files=files)["train"]}
+    else:
+        # ⚠️ datasets 5.0 对脚本型数据集会抛 "Dataset scripts are no longer supported"
+        ds = datasets.load_dataset(a.hf, version_tag=a.version, trust_remote_code=True)
     split = "test" if "test" in ds else list(ds.keys())[0]
     print("splits:", list(ds.keys()), "| columns:", ds[split].column_names, flush=True)
 
