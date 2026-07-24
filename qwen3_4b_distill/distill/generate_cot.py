@@ -13,6 +13,7 @@
 """
 
 import argparse
+import json
 import os
 import re
 import time
@@ -52,8 +53,9 @@ class Teacher:
         )
         self.tok = self.llm.get_tokenizer()
 
-    def chat(self, users, temperature, max_tokens, n=1):
-        """users: list[str]（user 消息）→ 返回 list[list[str]]（每题 n 个候选）。"""
+    def chat_full(self, users, temperature, max_tokens, n=1):
+        """users: list[str] → list[list[dict(text, finish, ntok)]]。
+        finish=='length' 即撞 max_tokens 被截断——教师被截断＝拿坏数据去训练，必须能被统计到。"""
         from vllm import SamplingParams
 
         prompts = [
@@ -62,7 +64,11 @@ class Teacher:
         ]
         sp = SamplingParams(temperature=temperature, top_p=0.95, max_tokens=max_tokens, n=n)
         outs = self.llm.generate(prompts, sp)
-        return [[c.text for c in o.outputs] for o in outs]
+        return [[{"text": c.text, "finish": c.finish_reason, "ntok": len(c.token_ids)} for c in o.outputs] for o in outs]
+
+    def chat(self, users, temperature, max_tokens, n=1):
+        """只要文本时的薄封装 → list[list[str]]。"""
+        return [[c["text"] for c in cs] for cs in self.chat_full(users, temperature, max_tokens, n)]
 
 
 class APITeacher:
@@ -107,6 +113,11 @@ class APITeacher:
                 out[fut2idx[f]].append(f.result())
         return out
 
+    def chat_full(self, users, temperature, max_tokens, n=1):
+        """与 Teacher.chat_full 同签名；API 端拿不到可靠的 finish_reason/token 数，故留空。"""
+        return [[{"text": s, "finish": None, "ntok": None} for s in cs]
+                for cs in self.chat(users, temperature, max_tokens, n)]
+
 
 def read_seed(path):
     df = pd.read_parquet(path)
@@ -126,15 +137,48 @@ def save(rows, out, n_seed, method):
     print(f"[{method}] 种子 {n_seed} → 产出 {len(df)} 条 messages -> {out}", flush=True)
 
 
+def gen_stats(out, method, max_new, n_seed, n_kept, n_cand, n_trunc, ntoks):
+    """落盘生成侧良率/截断率/长度分布 → gen_stats.json。
+    教师被 max_new 截断会系统性丢掉"需要长推理的难题"，使蒸馏集偏向简单题；
+    这个偏差不做统计就完全不可见，所以每次造数据都必须留下这份记录。"""
+    ntoks = sorted(x for x in ntoks if x)
+    q = (lambda r: ntoks[max(0, int(len(ntoks) * r) - 1)]) if ntoks else (lambda r: 0)
+    st = {
+        "method": method, "max_new": max_new, "n_seed": n_seed, "n_kept": n_kept,
+        "yield": round(n_kept / n_seed, 4) if n_seed else 0,
+        "n_candidates": n_cand, "n_truncated": n_trunc,
+        "truncated_rate": round(n_trunc / n_cand, 4) if n_cand else 0,
+        "tok_p50": q(0.5), "tok_p90": q(0.9), "tok_p95": q(0.95), "tok_p99": q(0.99),
+        "tok_max": ntoks[-1] if ntoks else 0,
+        "tok_over_4096": sum(1 for x in ntoks if x > 4096),
+        "tok_over_8192": sum(1 for x in ntoks if x > 8192),
+        "tok_over_16384": sum(1 for x in ntoks if x > 16384),
+    }
+    out = os.path.expanduser(out)
+    os.makedirs(out, exist_ok=True)
+    with open(os.path.join(out, "gen_stats.json"), "w") as f:
+        json.dump(st, f, ensure_ascii=False, indent=2)
+    print("[gen_stats] " + json.dumps(st, ensure_ascii=False), flush=True)
+
+
 # ---------- 方法一：Standard CoT ----------
 def m_standard(t, items, a):
-    outs = t.chat([q for q, _ in items], a.temp, a.max_new, n=a.n)
-    rows = []
+    outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n)
+    rows, n_cand, n_trunc, ntoks = [], 0, 0, []
     for (q, gt), cands in zip(items, outs):
-        for text in cands:  # 留第一个"答对 且 完整(含 \boxed，非截断)"的
-            if gt is not None and "\\boxed" in text and verify(text, gt):
-                rows.append(msg_row(q, text))
+        keep = None
+        for c in cands:  # 留第一个"完整(未撞上限、含 \boxed) 且 答对"的
+            n_cand += 1
+            ntoks.append(c["ntok"])
+            if c["finish"] == "length":  # 截断的必然不完整，直接弃，别让半截 CoT 进训练集
+                n_trunc += 1
+                continue
+            if gt is not None and "\\boxed" in c["text"] and verify(c["text"], gt):
+                keep = c["text"]
                 break
+        if keep is not None:
+            rows.append(msg_row(q, keep))
+    gen_stats(a.out, a.method, a.max_new, len(items), len(rows), n_cand, n_trunc, ntoks)
     return rows
 
 
@@ -237,9 +281,13 @@ def main():
     ap.add_argument("--tp", type=int, default=2)
     ap.add_argument("--temp", type=float, default=0.6)
     ap.add_argument("--n", type=int, default=1)
-    ap.add_argument("--max_len", type=int, default=8192)
+    # 默认顶到 Qwen3 的 max_position_embeddings=40960（不开 YaRN 的真实上限）：
+    # 教师被截断＝半截 CoT/丢失难题，是训练集的系统性偏差，绝不能为省时间默认调小。
+    # ⚠️ 8B 教师 bf16 权重 ~16.4G，单张 24G 卡放不下 40960 的 KV → 该默认值需 --tp 2；
+    #    只能用单卡时按 gen_stats.json 实测的 tok_p99 来定 --max_len/--max_new，别拍脑袋。
+    ap.add_argument("--max_len", type=int, default=40960)
     ap.add_argument("--gpu_mem", type=float, default=0.85, help="vLLM 显存占比；与他人共卡时调低(如 0.7)")
-    ap.add_argument("--max_new", type=int, default=4096)
+    ap.add_argument("--max_new", type=int, default=38912)
     ap.add_argument("--limit", type=int, default=0, help=">0 时只用前 N 条种子（调试/控预算）")
     # —— API teacher（任务三双轴用；仅 off-policy）——
     ap.add_argument("--teacher_type", choices=["vllm", "api"], default="vllm")
