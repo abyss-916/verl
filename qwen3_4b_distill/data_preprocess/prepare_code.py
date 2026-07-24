@@ -49,21 +49,16 @@ def _decode_private(raw):
 
 
 def _to_prime(ex):
-    """LCB 一题的 public+private 测试 → prime_code 期望的 {inputs,outputs,[fn_name]}：
-    - stdin      : inputs[i]=输入串, outputs[i]=期望输出串（无 fn_name）；
-    - functional : inputs[i]=参数列表(input 每行 json 解析), outputs[i]=期望返回(json), 顶层带 fn_name。"""
+    """LCB 一题的 public+private 测试 → prime_code 期望格式。
+    inputs[i]/outputs[i] 一律用 LCB 的 input/output **原始字符串**——prime_code 内部按类型自解析：
+      有 fn_name → call_based（对 input 每行 json.loads 成参数、output json.loads 成期望返回）；
+      无 fn_name → standard_input（input 原样作 stdin、output 作期望 stdout）。
+    ⚠️ 千万别在这里预解析 functional 的参数：prime_code(testing_util 222-223) 会再 json.loads 一次，
+       预解析后它对 list 做 .split('\\n') 会类型错 → 判分全 0（血泪教训）。"""
     pub = json.loads(ex["public_test_cases"]) if ex.get("public_test_cases") else []
     tests = list(pub) + list(_decode_private(ex.get("private_test_cases")))
     functional = any(t.get("testtype") == "functional" for t in tests)
-    inputs, outputs = [], []
-    for t in tests:
-        if functional:
-            inputs.append([json.loads(x) for x in str(t["input"]).split("\n") if x.strip() != ""])
-            outputs.append(json.loads(t["output"]))
-        else:
-            inputs.append(t["input"])
-            outputs.append(t["output"])
-    prime = {"inputs": inputs, "outputs": outputs}
+    prime = {"inputs": [t["input"] for t in tests], "outputs": [t["output"] for t in tests]}
     if functional:
         meta = ex.get("metadata")
         meta = json.loads(meta) if isinstance(meta, str) and meta else (meta or {})
