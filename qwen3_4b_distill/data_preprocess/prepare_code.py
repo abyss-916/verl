@@ -97,6 +97,10 @@ def main():
     ap.add_argument("--version", default="release_v5", help="LiveCodeBench version_tag（仅 --source hf）")
     ap.add_argument("--out", default="/data/liujiachen/datasets/livecodebench")
     ap.add_argument("--data_source", default="livecodebench")
+    # LCB 防污染时间窗（按 contest_date 过滤）。Qwen3 技术报告评 LCB v5 用 2024-08-01~2025-02-01，
+    # 与之对齐才可比 + 防污染。留空则不过滤（全量）。
+    ap.add_argument("--date_start", default=None, help="只留 contest_date >= 此 (YYYY-MM-DD)")
+    ap.add_argument("--date_end", default=None, help="只留 contest_date <= 此 (YYYY-MM-DD)")
     a = ap.parse_args()
 
     if a.source == "local":
@@ -123,6 +127,17 @@ def main():
         )
         if len(src) != n0:
             print(f"去重: {n0} -> {len(src)}（按 question_id）", flush=True)
+
+    if (a.date_start or a.date_end) and "contest_date" in src.column_names:  # 防污染时间窗
+        s, e = a.date_start, a.date_end
+
+        def _in_window(ex):
+            d = str(ex.get("contest_date") or "")[:10]
+            return bool(d) and (not s or d >= s) and (not e or d <= e)
+
+        n0 = len(src)
+        src = src.filter(_in_window)
+        print(f"日期窗[{s}~{e}]: {n0} -> {len(src)}", flush=True)
 
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
