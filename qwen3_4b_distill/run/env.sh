@@ -32,13 +32,9 @@ mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$PIP_CACHE_DIR" "$TOR
 export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B}   # 唯一 student=Qwen3-4B(instruct,带 thinking+chat 模板);不用 Base 版
 export TEACHER=${TEACHER:-$MODELS/Qwen3-8B}
 
-# 扩展 benchmark（加分，held-out eval；run/05_extended.sh 用）
+# code 线（LiveCodeBench，任务一 math+code 的 code 侧）
 export CODE_HF=${CODE_HF:-livecodebench/code_generation_lite}
 export CODE_VERSION=${CODE_VERSION:-release_v5}
-export MMLU_PRO_HF=${MMLU_PRO_HF:-TIGER-Lab/MMLU-Pro}
-export SUPERGPQA_HF=${SUPERGPQA_HF:-m-a-p/SuperGPQA}
-export AIME_HF=${AIME_HF:-yentinglin/aime_2025}   # AIME2025，列 problem/answer（已核实可用）；置空则跳过
-export AIME_SUBSET=${AIME_SUBSET:-}               # 该集单 config，留空即可
 
 # 任务三 API teacher（off-policy 强度轴/家族轴；DeepSeek MIT / Qwen 许可）。
 # ⚠️ key 用环境变量注入，别写进代码/仓库：export DEEPSEEK_API_KEY=... / export DASHSCOPE_API_KEY=...

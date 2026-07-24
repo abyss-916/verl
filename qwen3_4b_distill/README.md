@@ -9,7 +9,7 @@
 | 变量 | 默认 |
 |---|---|
 | verl 仓 | `/data/liujiachen/verl`（本目录在其下 `qwen3_4b_distill/`） |
-| 模型 | `/data/liujiachen/models/`（`Qwen3-4B-Base`、`Qwen3-8B`…） |
+| 模型 | `/data/liujiachen/models/`（`Qwen3-4B`、`Qwen3-8B`…） |
 | 数据 | `/data/liujiachen/datasets/`（verl parquet） |
 | ckpt | `/data/liujiachen/checkpoints/` |
 
@@ -18,32 +18,28 @@
 |---|---|---|
 | 1 数据接入 | `data_preprocess/prepare_math.py` | 数据集 → verl **RL parquet**（含 ground_truth，供 GRPO/eval） |
 | 2 造蒸馏数据 | `distill/generate_cot.py` | teacher(8B) 造 CoT + math-verify 过滤 → **SFT messages parquet**（standard_cot/reverse/question_aug） |
-| 3 SFT | `train/sft.sh` | off-policy 序列蒸馏训 Qwen3-4B-Base |
+| 3 SFT | `train/sft.sh` | off-policy 序列蒸馏训 Qwen3-4B |
 | — reward | `reward/math_reward.py` | OlymMATH 等自定义集的可验证奖励（复用 verl math-verify） |
-| 4 GRPO | `train/grpo.sh` | GRPO 后训练（**2×3090 适配**） |
-| 5 OPD(加分) | `train/opd.sh` | On-Policy Distillation（logit KD，**stretch**，可能 OOM） |
-| 6 度量 | `metrics/data_metrics.py` `metrics/compare_methods.py` | 各方法数据 length/diversity/PPL/IFD（**student 视角**）+ 三法对比表 |
-| 7 评测 | `eval/eval_math.py` | pass@1 / avg@k / pass@k（thinking），逐题 jsonl + 论文对齐 |
-| code | `data_preprocess/prepare_code.py` | LiveCodeBench → RL parquet（评测/GRPO 需 sandbox） |
+| 4 GRPO | `train/grpo.sh` | GRPO 后训练（**2×3090 适配**，从 SFT ckpt 起，prompt=MATH 种子防泄漏） |
+| 5 度量 | `metrics/data_metrics.py` `metrics/compare_methods.py` | 各方法/教师数据 length/diversity/PPL/IFD（**student 视角**）+ 对比表 |
+| 6 评测 | `eval/eval_math.py`（+ `merge_shards.py` 分片合并） | pass@1 / avg@k / pass@k（thinking，含截断率），逐题 jsonl + 论文对齐 |
+| 7 记录 | `run/make_manifest.py` | 每实验统一记录（dataset/teacher/方法/采样/filter/数据统计/结果/论文对齐） |
+| code | `data_preprocess/prepare_code.py` `eval/eval_code.py` `reward/code_reward.py` | LiveCodeBench（需 parquet 源 + sandbox） |
 
-## 一键编排（run/）——服务器上按 `项目 doc/RUNBOOK.md` 顺序跑
+## 编排脚本（run/）
 | 脚本 | 阶段 |
 |---|---|
 | `run/00_smoke.sh` | 环境自检 + verl 入口核对（M0→M1） |
-| `run/01_task1_data_and_base_eval.sh` | 任务一：数据 + base eval |
-| `run/02_task2_methods.sh` | 任务二：三法造数据 + 度量 + SFT + sft_eval + 对比 |
-| `run/03_grpo.sh` | GRPO + grpo_eval（后台跑） |
-| `run/04_task3_teacher_scan.sh` | 任务三：teacher 强度扫描（off-policy） |
-| `run/05_extended.sh` | 扩展 benchmark base eval：code(LiveCodeBench) + mc(MMLU-Pro/SuperGPQA) + AIME |
-| `run/06_scaling.sh` | 数据 scaling 研究：standard_cot × {500/2000/7500} 种子，画 accuracy–数据量曲线 |
+| `run/01_task1_data_and_base_eval.sh` | 任务一：数据接入 + base eval |
+| `run/gen_distill.sh` | 造蒸馏数据的**安全启动器**（tp=2 满预算，冒烟→正式；standard_cot/reverse/question_aug + 换教师通用） |
+| `run/03_grpo.sh` | GRPO + grpo_eval（从 SFT ckpt 起，后台跑） |
+| `run/make_manifest.py` | 每实验统一记录（满足课题§1） |
 
-`distill/generate_cot.py` 三法（standard_cot / reverse / question_aug）**均已实现**。
+> **执行纪律（共享服务器 + 质量第一）**：不用"一键跑全部"的自动链；**每步先查 `nvidia-smi` 定 gpu_mem、造数据先冒烟**，逐步跑（造数据用 `gen_distill.sh`，训练 `train/sft.sh`，评测 `eval/eval_math.py`，度量 `metrics/*.py`）。任务二/三/scaling 都用 `gen_distill.sh`（换 METHOD / TEACHER / LIMIT）+ 分步命令组合。
 
-**其他模块（初稿）**：`metrics/attribution.py`（归因：数据指标↔表现相关性）+ `metrics/slice_eval.py`（**深度归因**：按 level/type 切片准确率 + dump 错例做错误分析）｜
-`reward/code_reward.py` + `eval/eval_code.py`（code 判分/评测，复用 verl prime_code/sandbox）｜
-`data_preprocess/prepare_mc.py` + `eval/eval_mc.py`（选择题类：MMLU-Pro/SuperGPQA）｜
-`distill/generate_cot.py` 支持 **`--teacher_type api`**（DeepSeek/DashScope，任务三双轴，仅 off-policy）。
-> 注：初稿代码已语法自检，尚未真跑；code 测试用例格式、OOM 参数等首跑后再据实验调整。
+`distill/generate_cot.py` 三法（standard_cot / reverse / question_aug）+ 多教师/API teacher（`--teacher_type api`）**均已实现**。
+归因：`metrics/attribution.py`（数据指标↔表现相关）+ `metrics/slice_eval.py`（**深度归因**：`--by subject` 逐学科 Δ + `--vs` 配对 McNemar + 错例）。
+code 线：`prepare_code`/`eval_code`/`code_reward`（就绪门：LCB parquet 源 + sandbox + 测试用例格式首跑核对）。
 
 ## 2×3090 铁律
 - **任何训练/生成首次先 `TEST=1`**（几十条/小 batch/短 response）验证不 OOM，再放大。
@@ -54,11 +50,14 @@
 - **SEED（训练/蒸馏种子 + GRPO prompt）= MATH-lighteval train ~7500** → `$SEED_DIR`（服务 task2 scaling）。
 - **EVAL（held-out）= OlymMATH en-hard** → `$EVAL_DIR`（只评测，绝不进训练；所有分报在它上）。
 
-## 一条最短跑通路径（math 主线，走 run 编排）
+## 一条最短跑通路径（math 主线，逐步跑；每步先查 nvidia-smi）
 ```bash
 source run/env.sh
-bash run/01_task1_data_and_base_eval.sh          # 备 SEED+EVAL 数据 + base eval(held-out)
-LIMIT=200 TEST=1 bash run/02_task2_methods.sh    # 三法造数据+度量+SFT+sft_eval(held-out)，先小规模跑通
-TEST=1 bash run/03_grpo.sh                        # GRPO(prompt=MATH) + grpo_eval(held-out)，先验证不 OOM
+bash run/01_task1_data_and_base_eval.sh                                  # 备 SEED+EVAL 数据 + base eval(held-out)
+GPU_MEM=0.9 METHOD=standard_cot LIMIT=2000 bash run/gen_distill.sh       # 造数据(冒烟→正式，满预算)
+EXP=sft_standard_cot DATA_DIR=$DATA/distill/standard_cot bash train/sft.sh   # SFT(首次先 TEST=1)
+python eval/eval_math.py --model "$(latest_hf $CKPT/sft_standard_cot)" --data $EVAL_DIR/test.parquet --n 8 --out $LOGS/eval/olymmath_sft_standard
+python metrics/data_metrics.py --data $DATA/distill/standard_cot/train.parquet --model $STUDENT_BASE --out $LOGS/metrics_standard_cot.json
+# GRPO(upward)： TEST=1 bash run/03_grpo.sh   先验不 OOM
 ```
-详见 `项目 doc/RUNBOOK.md`。
+详见 `项目 doc/RUNBOOK.md` 与 `项目 doc/课题要求对照与交付.md` 的排期。

@@ -1,5 +1,5 @@
 """归因分析（课题核心"解释 accuracy 为什么变"）：把"数据侧指标"与"训练后表现"关联。
-每个实验点 = data_metrics.py 的 json + eval_math/eval_mc 的 summary.json。
+每个实验点 = data_metrics.py 的 json + eval_math/eval_code 的 summary.json。
 输出合并表 + 各数据指标与 pass@1 的相关系数，看哪个数据属性最能解释表现变化。
 
 用法：
@@ -23,7 +23,7 @@ DATA_FIELDS = [
 
 
 def get_perf(ev):
-    """从 eval summary 取 pass@1（eval_math 键名为 'pass@1 (avg@n)'；eval_mc 为 'accuracy'）。"""
+    """从 eval summary 取 pass@1（eval_math/eval_code 键名为 'pass@1 (avg@n)'）。"""
     for k, v in ev.items():
         if k.startswith("pass@1") or k == "accuracy":
             return v
