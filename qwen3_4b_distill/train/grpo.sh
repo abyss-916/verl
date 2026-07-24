@@ -19,11 +19,13 @@ SAVE=${SAVE:-$CKPT/$EXP}
 if [ "${TEST:-0}" = "1" ]; then
   TBS=8; MINI=8; RESP=256; N=4; EPOCHS=1
 else
-  # ⚠️ RESP(max_response_length) 是 GRPO 成败关键、待专门讨论：太短→数学题产不出完整 CoT 到 \boxed→
-  #    reward 恒 0→学不到；太长→2×3090 显存/算力爆。取值取决于"用 MATH(较易可短) vs 硬上长预算"，
-  #    与"短 PoC vs 完整"一起在 GRPO 讨论时定。1024 仅占位，勿直接当正式值用。
-  TBS=${TBS:-32}; MINI=${MINI:-16}; RESP=${RESP:-1024}; N=${N:-5}; EPOCHS=${EPOCHS:-5}
+  # RESP(max_response_length)：数学题要产出完整 CoT 到 \boxed 才有 reward。教师 MATH 解实测
+  #   p50≈2.5K / p97≈8K token → 8192 覆盖大多数、给足学习信号；1024 会让多数题截断、reward 恒 0 学不到。
+  #   以课题质量为先，默认 8192，不为省显存砍。显存实在装不下时退 4096(覆盖~p85)，别退回 1024。
+  TBS=${TBS:-32}; MINI=${MINI:-16}; RESP=${RESP:-8192}; N=${N:-5}; EPOCHS=${EPOCHS:-5}
 fi
+# 单条序列最长 = prompt(1024) + response(RESP)；训练 micro-batch 与 rollout KV 都必须能装下它
+TOTLEN=$(( 1024 + RESP ))
 
 python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
@@ -46,17 +48,18 @@ python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.actor.optim.lr=1e-6 \
   actor_rollout_ref.actor.ppo_mini_batch_size=$MINI \
   actor_rollout_ref.actor.use_dynamic_bsz=True \
-  actor_rollout_ref.actor.ppo_max_token_len_per_gpu=3000 \
+  actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$TOTLEN \
   actor_rollout_ref.actor.use_kl_loss=False \
   actor_rollout_ref.actor.entropy_coeff=0 \
   actor_rollout_ref.actor.fsdp_config.param_offload=True \
   actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+  actor_rollout_ref.rollout.max_model_len=$TOTLEN \
   actor_rollout_ref.rollout.n=$N \
   actor_rollout_ref.rollout.free_cache_engine=True \
-  actor_rollout_ref.rollout.enable_chunked_prefill=False \
+  actor_rollout_ref.rollout.enable_chunked_prefill=True \
   actor_rollout_ref.actor.checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
   trainer.use_v1=False \
   trainer.default_local_dir=$SAVE \
