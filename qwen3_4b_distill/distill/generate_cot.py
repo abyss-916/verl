@@ -131,6 +131,10 @@ def save(rows, out, n_seed, method):
     out = os.path.expanduser(out)
     os.makedirs(out, exist_ok=True)
     df = pd.DataFrame(rows)
+    # 打散再切 val：种子在 MATH 里常按 level 排序，不打散会让 val 全落在某难度；reverse 的三元组相邻，
+    # 打散也顺带把它们分开（val 仅用于 loss 监控，最终评测在 held-out OlymMATH，轻微相关无碍）。
+    if len(df) > 1:
+        df = df.sample(frac=1.0, random_state=0).reset_index(drop=True)
     n_val = max(1, int(len(df) * 0.05)) if len(df) > 20 else 1
     df.iloc[n_val:].to_parquet(os.path.join(out, "train.parquet"))
     df.iloc[:n_val].to_parquet(os.path.join(out, "val.parquet"))
@@ -204,27 +208,41 @@ I_CON = (
 
 
 def m_reverse(t, items, a):
-    # Step1: R_f，过滤正向正确
-    rf = t.chat([q for q, _ in items], a.temp, a.max_new, n=1)
-    kept = [(q, gt, c[0]) for (q, gt), c in zip(items, rf) if gt is not None and verify(c[0], gt)]
+    ntoks, n_cand, n_trunc = [], 0, 0
+    # Step1: R_f（正向推理），过滤"未截断 且 含 \boxed 且 答对"（与 standard 同一质量门槛）
+    rf = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=1)
+    kept = []
+    for (q, gt), cs in zip(items, rf):
+        c = cs[0]; n_cand += 1; ntoks.append(c["ntok"])
+        if c["finish"] == "length":                       # 截断的 R_f 丢弃，别让半截 CoT 进训练集
+            n_trunc += 1; continue
+        if gt is not None and "\\boxed" in c["text"] and verify(c["text"], gt):
+            kept.append((q, gt, c["text"]))
     if not kept:
+        gen_stats(a.out, a.method, a.max_new, len(items), 0, n_cand, n_trunc, ntoks)
         return []
-    # Step2: 逆向问题 Q_b
+    # Step2: 逆向问题 Q_b（短输出 512，不计入截断统计）
     qb = [c[0].strip() for c in t.chat([I_BQ.format(q=q, a=gt) for q, gt, _ in kept], a.temp, 512, n=1)]
-    # Step3: 逆向推理 R_b
-    rb = [c[0] for c in t.chat([q + " " + BOXED_INSTR for q in qb], a.temp, a.max_new, n=1)]
-    # Step4: 一致性过滤（A2 = R_b 的最终答案，应能在 Q1 中找到且正确）
-    con_users = [
-        I_CON.format(q1=q, a1=gt, q2=qbi, a2=(extract_boxed(rbi) or rbi.strip()[-64:]))
-        for (q, gt, _), qbi, rbi in zip(kept, qb, rb)
-    ]
-    con = [c[0].strip().lower() for c in t.chat(con_users, 0.0, 8, n=1)]
+    # Step3: 逆向推理 R_b，同样过滤截断
+    rb_out = t.chat_full([q + " " + BOXED_INSTR for q in qb], a.temp, a.max_new, n=1)
+    idxs, con_users = [], []
+    for i, ((q, gt, _), qbi, cs) in enumerate(zip(kept, qb, rb_out)):
+        c = cs[0]; n_cand += 1; ntoks.append(c["ntok"])
+        if c["finish"] == "length":
+            n_trunc += 1; continue
+        idxs.append(i)
+        con_users.append(I_CON.format(q1=q, a1=gt, q2=qbi,
+                                      a2=(extract_boxed(c["text"]) or c["text"].strip()[-64:])))
+    # Step4: 一致性过滤（A2 = R_b 的最终答案，应能在 Q1 中找到且正确）→ 组装多目标样本
+    con = [c[0].strip().lower() for c in t.chat(con_users, 0.0, 8, n=1)] if con_users else []
     rows = []
-    for (q, gt, rf_text), qbi, rbi, judge in zip(kept, qb, rb, con):
-        if judge.startswith("true"):
+    for j, i in enumerate(idxs):
+        if con[j].startswith("true"):
+            q, gt, rf_text = kept[i]; qbi = qb[i]; rbi = rb_out[i][0]["text"]
             rows.append(msg_row(q, rf_text))                       # (a) Q → R_f
             rows.append(msg_row(q, qbi))                           # (b) Q → Q_b
             rows.append(msg_row(qbi + " " + BOXED_INSTR, rbi))     # (c) Q_b → R_b
+    gen_stats(a.out, a.method, a.max_new, len(items), len(rows), n_cand, n_trunc, ntoks)
     return rows
 
 
@@ -245,23 +263,34 @@ P2 = "Please act as a professional math teacher. Solve the problem step by step 
 
 
 def m_qaug(t, items, a):
-    # Step1: 造全新题（temp=1.0 取多样性）
-    p1 = t.chat([P1.format(q=q) for q, _ in items], 1.0, a.max_new, n=a.n)
+    ntoks, n_cand, n_trunc = [], 0, 0
+    # Step1: 造全新题（temp=1.0 取多样性），过滤截断（截断的题面残缺）
+    p1 = t.chat_full([P1.format(q=q) for q, _ in items], 1.0, a.max_new, n=a.n)
     newqs = []
     for cands in p1:
-        for text in cands:
-            m = re.search(r"FINAL CREATED QUESTION:\s*(.+)", text, re.S)
+        for c in cands:
+            n_cand += 1; ntoks.append(c["ntok"])
+            if c["finish"] == "length":
+                n_trunc += 1; continue
+            m = re.search(r"FINAL CREATED QUESTION:\s*(.+)", c["text"], re.S)
             if m:
                 newqs.append(m.group(1).strip())
     if not newqs:
+        gen_stats(a.out, a.method, a.max_new, len(items), 0, n_cand, n_trunc, ntoks)
         return []
-    # Step2: 造解 + self-consistency 多数投票过滤（无 gold）
+    # Step2: 造解 + self-consistency 多数投票过滤（无 gold），过滤截断候选
     k = max(3, a.n)
-    ans = t.chat([P2.format(q=nq) for nq in newqs], 1.0, a.max_new, n=k)
+    ans = t.chat_full([P2.format(q=nq) for nq in newqs], 1.0, a.max_new, n=k)
     rows = []
     for nq, cands in zip(newqs, ans):
-        boxed = [extract_boxed(c) for c in cands]
-        pairs = [(c, b) for c, b in zip(cands, boxed) if b]
+        texts = []
+        for c in cands:
+            n_cand += 1; ntoks.append(c["ntok"])
+            if c["finish"] == "length":
+                n_trunc += 1; continue
+            texts.append(c["text"])
+        boxed = [extract_boxed(c) for c in texts]
+        pairs = [(c, b) for c, b in zip(texts, boxed) if b]
         if len(pairs) < 2:
             continue
         maj, cnt = Counter(b for _, b in pairs).most_common(1)[0]
@@ -269,6 +298,7 @@ def m_qaug(t, items, a):
             continue
         sol = next(c for c, b in pairs if b == maj)
         rows.append(msg_row(nq + " " + BOXED_INSTR, sol))
+    gen_stats(a.out, a.method, a.max_new, len(items), len(rows), n_cand, n_trunc, ntoks)
     return rows
 
 

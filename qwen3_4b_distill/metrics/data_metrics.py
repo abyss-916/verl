@@ -1,12 +1,12 @@
 """蒸馏数据度量（student 视角）——对接课题 metrics 阶段与任务三归因。
 度量：样本数 / 长度(token) / 多样性(distinct-1,2) / PPL / IFD。
-    - PPL、IFD 用 **student 基座**（Qwen3-4B-Base）算，因为课题问的是"数据适不适合 4B 学"。
+    - PPL、IFD 用 **student 基座**（Qwen3-4B）算，因为课题问的是"数据适不适合 4B 学"。
     - IFD = L(answer|question) / L(answer)：越高=问题对预测答案帮助越小=越难跟随/越有信息量；
       IFD>=1 视为噪声/错配（精确定义参见 Cherry LLM, arXiv:2308.12032）。
 
 用法（服务器）：
   python data_metrics.py --data /data/liujiachen/datasets/distill/standard_cot/train.parquet \
-    --model /data/liujiachen/models/Qwen3-4B-Base --limit 500 --out metrics_standard_cot.json
+    --model /data/liujiachen/models/Qwen3-4B --limit 500 --out metrics_standard_cot.json
 不给 --model 时只算 长度 + 多样性（快，仅需 tokenizer；用 --tokenizer 指定）。
 """
 
@@ -67,7 +67,7 @@ def _seq_loss(model, ids, target_start, device):
     return float(loss.mean()) if loss.numel() else float("nan")
 
 
-def compute_ppl_ifd(rows, model_path, limit, device="cuda"):
+def compute_ppl_ifd(rows, model_path, limit, device="cuda", max_len=8192):
     import math
 
     import torch
@@ -78,11 +78,16 @@ def compute_ppl_ifd(rows, model_path, limit, device="cuda"):
         model_path, torch_dtype=torch.bfloat16, trust_remote_code=True
     ).to(device).eval()
 
-    ppls, ifds = [], []
+    ppls, ifds, n_skip = [], [], 0
     for q, a in rows[:limit]:
         if not a:
             continue
         q_ids, a_ids = tok.encode(q), tok.encode(a)
+        # 超长跳过：单条前向的 logits 是 [seq × vocab(≈15万)]，16K token 就 ~5G，24G 卡会 OOM。
+        # IFD/PPL 是整体分布度量，跳过极少数超长样本不改结论；跳过数记入 json 保持透明。
+        if len(q_ids) + len(a_ids) > max_len:
+            n_skip += 1
+            continue
         l_a_given_q = _seq_loss(model, q_ids + a_ids, len(q_ids), device)  # L(A|Q)
         l_a = _seq_loss(model, a_ids, 0, device)  # L(A)
         if not math.isnan(l_a_given_q):
@@ -94,6 +99,8 @@ def compute_ppl_ifd(rows, model_path, limit, device="cuda"):
         "ppl_student_view_mean": mean(ppls),
         "ifd_mean": mean(ifds),
         "ifd_ge1_ratio": (sum(v >= 1 for v in ifds) / len(ifds)) if ifds else None,  # 噪声占比
+        "ppl_ifd_n_used": len(ppls),
+        "ppl_ifd_n_skipped_too_long": n_skip,
     }
 
 
@@ -101,8 +108,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True, help="parquet（SFT messages 或 RL 格式）")
     ap.add_argument("--model", default=None, help="student 基座；给了才算 PPL/IFD")
-    ap.add_argument("--tokenizer", default=None, help="仅算长度/多样性时的 tokenizer；默认同 --model 或 Qwen3-4B-Base")
+    ap.add_argument("--tokenizer", default=None, help="仅算长度/多样性时的 tokenizer；默认同 --model 或 Qwen3-4B")
     ap.add_argument("--limit", type=int, default=500, help="PPL/IFD 采样上限（省时）")
+    ap.add_argument("--ppl_max_len", type=int, default=8192, help="PPL/IFD 单样本 token 上限，超过跳过防 OOM")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
@@ -111,12 +119,12 @@ def main():
 
     from transformers import AutoTokenizer
 
-    tok_path = args.tokenizer or args.model or "/data/liujiachen/models/Qwen3-4B-Base"
+    tok_path = args.tokenizer or args.model or "/data/liujiachen/models/Qwen3-4B"
     tok = AutoTokenizer.from_pretrained(tok_path, trust_remote_code=True)
 
     result = compute_length_diversity(rows, tok)
     if args.model:
-        result.update(compute_ppl_ifd(rows, args.model, args.limit))
+        result.update(compute_ppl_ifd(rows, args.model, args.limit, max_len=args.ppl_max_len))
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
     if args.out:

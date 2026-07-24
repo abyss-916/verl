@@ -30,7 +30,10 @@ LR=${LR:-1e-5}
 if [ "${TEST:-0}" = "1" ]; then
   MB=1; MAXLEN=1024; EPOCHS=1
 else
-  MB=${MB:-2}; MAXLEN=${MAXLEN:-4096}; EPOCHS=${EPOCHS:-3}
+  # ⚠️ MAXLEN 必须覆盖蒸馏数据长度，否则 data.truncation=right 会把长 CoT(难题)截断，
+  #    等于把前面满预算生成保住的难样本又丢掉。教师 CoT 实测 p99≈11.6K → 默认 16384 覆盖 p99。
+  #    正式训前按该方法 gen_stats.json 的 tok_p99/tok_max 调准；显存不够时降 MB(micro-batch)，别降 MAXLEN。
+  MB=${MB:-2}; MAXLEN=${MAXLEN:-16384}; EPOCHS=${EPOCHS:-3}
 fi
 
 extra=()
