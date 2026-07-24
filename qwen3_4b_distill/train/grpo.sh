@@ -6,9 +6,12 @@
 #   TEST=1 ... bash train/grpo.sh      # 先跑通 1~2 step 不 OOM 再放大
 set -xeuo pipefail
 
-MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}   # 建议用 SFT 后 ckpt
-DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/olymmath}          # RL parquet（含 ground_truth）
-EXP=${EXP:-grpo_olymmath}
+MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}   # 建议用 SFT 后 ckpt（如 $CKPT/sft_standard_cot）
+# ⚠️ 训练 prompt 必须用 MATH 种子(math_seed)，绝不能用 olymmath——那是 held-out 评测集，
+#    拿它训 GRPO = 在评测题上训 = 数据泄漏，最终分数作废。held-out 只放 VAL_DIR 做监控(不更新权重)。
+TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/math_seed}   # GRPO 训练 prompt = MATH(含 ground_truth)
+VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}        # 仅监控 held-out 泛化，不参与训练/模型选择
+EXP=${EXP:-grpo_math}
 REWARD=${REWARD:-/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py}
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
@@ -16,14 +19,17 @@ SAVE=${SAVE:-$CKPT/$EXP}
 if [ "${TEST:-0}" = "1" ]; then
   TBS=8; MINI=8; RESP=256; N=4; EPOCHS=1
 else
+  # ⚠️ RESP(max_response_length) 是 GRPO 成败关键、待专门讨论：太短→数学题产不出完整 CoT 到 \boxed→
+  #    reward 恒 0→学不到；太长→2×3090 显存/算力爆。取值取决于"用 MATH(较易可短) vs 硬上长预算"，
+  #    与"短 PoC vs 完整"一起在 GRPO 讨论时定。1024 仅占位，勿直接当正式值用。
   TBS=${TBS:-32}; MINI=${MINI:-16}; RESP=${RESP:-1024}; N=${N:-5}; EPOCHS=${EPOCHS:-5}
 fi
 
 python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
   algorithm.use_kl_in_reward=False \
-  data.train_files=$DATA_DIR/train.parquet \
-  data.val_files=$DATA_DIR/test.parquet \
+  data.train_files=$TRAIN_DIR/train.parquet \
+  data.val_files=$VAL_DIR/test.parquet \
   data.train_batch_size=$TBS \
   data.max_prompt_length=1024 \
   data.max_response_length=$RESP \
@@ -34,6 +40,8 @@ python3 -m verl.trainer.main_ppo \
   reward.reward_manager.name=naive \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.model.use_remove_padding=True \
+  actor_rollout_ref.model.use_liger=True \
+  actor_rollout_ref.model.use_fused_kernels=True \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.optim.lr=1e-6 \
   actor_rollout_ref.actor.ppo_mini_batch_size=$MINI \

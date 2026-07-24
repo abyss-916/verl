@@ -7,7 +7,9 @@ set -xeuo pipefail
 
 STUDENT_MODEL=${STUDENT_MODEL:-/data/liujiachen/models/Qwen3-4B}
 TEACHER_MODEL=${TEACHER_MODEL:-/data/liujiachen/models/Qwen3-8B}
-DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/olymmath}
+# ⚠️ 同 grpo.sh：训练 prompt 用 MATH 种子，olymmath 是 held-out 评测集，只做 VAL 监控，绝不进训练。
+TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/math_seed}
+VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}
 EXP=${EXP:-opd_4b_from_8b}
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
@@ -25,8 +27,8 @@ MAXTOK=$(( 1024 + RESP + 1 ))
 python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
   algorithm.use_kl_in_reward=False \
-  data.train_files=$DATA_DIR/train.parquet \
-  data.val_files=$DATA_DIR/test.parquet \
+  data.train_files=$TRAIN_DIR/train.parquet \
+  data.val_files=$VAL_DIR/test.parquet \
   data.train_batch_size=$TBS \
   data.max_prompt_length=1024 \
   data.max_response_length=$RESP \
