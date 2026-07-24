@@ -5,14 +5,17 @@
 #   EXP=sft_standard_cot DATA_DIR=/data/liujiachen/datasets/distill/standard_cot bash train/sft.sh
 #   TEST=1 EXP=... DATA_DIR=... bash train/sft.sh      # 极小配置先验证不 OOM / 不缺库
 #
-# ── 加速：本机 glibc 2.31 装不上 flash-attn 预编译轮子，故全程不依赖它 ──
-#   · attn 用 sdpa（Ampere+bf16 下 sdpa 本就调 FlashAttention-2 内核，注意力不慢）；
-#   · use_remove_padding=false + pad_mode=right：变长打包在 CUDA 上硬依赖 flash_attn.bert_padding，
-#     没有纯 torch 兜底，故关掉走 padding（按长度分桶把浪费压小；我们数据 p50≈2.5K/p95≈6K 本就不长）；
-#   · 提速改走 Triton 融合算子（不碰 glibc）：use_liger（SwiGLU/RMSNorm/RoPE）+ use_fused_kernels
-#     （融合 linear cross-entropy，Qwen3 词表 15 万，省下 [seq×150k] logits 的几 G 显存 —— 比打包更实用）。
-#   · 这些都不改数值结果，纯提速；想单独关：USE_LIGER=false / USE_FUSED=false。
-#   ⚠️ 不装 flash-attn 时 ulysses SP 也别开（SP_SIZE 保持 1），序列并行同样依赖变长路径。
+# ── 加速（本机 glibc 2.31）──
+#   flash-attn 已用预编译轮子装上（mjun0812 flash_attn 2.8.3+cu128torch2.9-cp312，manylinux_2_28，
+#   glibc≥2.28 兼容，绕开官方轮子的 GLIBC_2.32 坑）。故默认走 flash-attn 最快路径：
+#   · USE_FLASH=1（默认）：attn=flash_attention_2 + use_remove_padding=true + pad_mode=no_padding
+#     （变长打包，省 padding，长短不一时 1.5–2×）。
+#   · USE_FLASH=0（回退）：attn=sdpa + use_remove_padding=false + pad_mode=right（不依赖 flash-attn；
+#     若 flash-attn 算子在本机跑挂就用这个。sdpa 在 Ampere 本就是 FlashAttention-2 内核，注意力不慢）。
+#   · 叠加的 Triton 融合算子（不碰 flash-attn）：use_liger（SwiGLU/RMSNorm/RoPE）+ use_fused_kernels
+#     （融合 linear cross-entropy，Qwen3 词表 15 万，省 [seq×150k] logits 的几 G 显存）。两档都开。
+#   · 以上都不改数值结果，纯提速；单独关：USE_LIGER=false / USE_FUSED=false。
+#   ⚠️ ulysses SP（SP_SIZE>1）依赖变长路径，仅在 USE_FLASH=1 时可开。
 set -xeuo pipefail
 
 MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}
@@ -35,6 +38,14 @@ if [ "$USE_PEFT" = "1" ]; then
   extra+=(model.lora_rank=32 model.lora_alpha=16 model.target_modules=all-linear)
 fi
 
+# 加速开关：flash-attn 变长打包(默认) vs sdpa+padding 回退；Triton 融合算子两档都开
+accel=(model.use_liger=${USE_LIGER:-true} model.use_fused_kernels=${USE_FUSED:-true})
+if [ "${USE_FLASH:-1}" = "1" ]; then
+  accel+=(data.pad_mode=no_padding model.use_remove_padding=true)   # attn 默认即 flash_attention_2
+else
+  accel+=(data.pad_mode=right model.use_remove_padding=false model.override_config.attn_implementation=sdpa)
+fi
+
 torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   -m verl.trainer.sft_trainer \
   data.train_files=$DATA_DIR/train.parquet \
@@ -44,22 +55,18 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   data.micro_batch_size_per_gpu=$MB \
   data.max_length=$MAXLEN \
   data.truncation=right \
-  data.pad_mode=right \
   optim.lr=$LR \
   engine=fsdp \
   engine.ulysses_sequence_parallel_size=$SP_SIZE \
   model.path=$MODEL_PATH \
-  model.use_remove_padding=false \
-  model.override_config.attn_implementation=sdpa \
-  model.use_liger=${USE_LIGER:-true} \
-  model.use_fused_kernels=${USE_FUSED:-true} \
   trainer.default_local_dir=$SAVE \
   checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
   trainer.project_name=qwen3-4b-distill \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
   trainer.total_epochs=$EPOCHS \
-  "${extra[@]}" "$@"
+  "${accel[@]}" "${extra[@]}" "$@"
 
-# Liger 需先装：pip install liger-kernel（纯 Triton 轮子，不编译、不碰 glibc）。装前先 TEST=1 冒烟。
+# Liger 需先装：pip install liger-kernel（纯 Triton 轮子，不编译、不碰 glibc）。首跑先 TEST=1 冒烟，
+# 同时验证 flash-attn 算子在本机能跑；若冒烟报 flash-attn 相关错，用 USE_FLASH=0 回退再跑。
 # 三法（standard_cot / reverse / question_aug）分别改 EXP 与 DATA_DIR，其余保持一致以公平对比。
