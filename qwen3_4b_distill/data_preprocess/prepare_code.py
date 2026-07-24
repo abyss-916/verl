@@ -58,10 +58,15 @@ def main():
     a = ap.parse_args()
 
     if a.source == "local":
-        files = sorted(glob.glob(os.path.join(os.path.expanduser(a.hf), "**", "*.parquet"), recursive=True))
-        if not files:
-            raise SystemExit(f"[fatal] 本地无 parquet：{a.hf}（先把 LCB parquet 抓到此目录）")
-        ds = {"test": datasets.load_dataset("parquet", data_files=files)["train"]}
+        root = os.path.expanduser(a.hf)
+        pq = sorted(glob.glob(os.path.join(root, "**", "*.parquet"), recursive=True))
+        jl = sorted(glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True))
+        if pq:
+            ds = {"test": datasets.load_dataset("parquet", data_files=pq)["train"]}
+        elif jl:  # LCB 原始 test5.jsonl（release_v5）即走这里
+            ds = {"test": datasets.load_dataset("json", data_files=jl)["train"]}
+        else:
+            raise SystemExit(f"[fatal] 本地无 parquet/jsonl：{root}（先把 LCB 数据抓到此目录）")
     else:
         # ⚠️ datasets 5.0 对脚本型数据集会抛 "Dataset scripts are no longer supported"
         ds = datasets.load_dataset(a.hf, version_tag=a.version, trust_remote_code=True)
