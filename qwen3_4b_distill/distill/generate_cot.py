@@ -7,8 +7,9 @@
 
 公平对比铁律：三法共用同一 teacher / 同一 chat 模板 / 同一采样预算。
 用法（服务器）：
+  # ⚠️ --seed 只用 MATH 训练种子，绝不用 olymmath（那是 held-out 评测集，拿来蒸馏=泄漏）
   python generate_cot.py --method reverse \
-    --seed /data/liujiachen/datasets/olymmath/train.parquet \
+    --seed /data/liujiachen/datasets/math_seed/train.parquet \
     --teacher /data/liujiachen/models/Qwen3-8B --out /data/liujiachen/datasets/distill/reverse --tp 2
 """
 
@@ -26,8 +27,22 @@ BOXED_INSTR = "Please reason step by step, and put your final answer within \\bo
 
 # ---------- 通用 ----------
 def extract_boxed(text):
-    m = re.findall(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", text)
-    return m[-1].strip() if m else None
+    """取最后一个 \\boxed{...}，用括号配平支持任意层嵌套（\\frac{a}{\\sqrt{2}} 这类双层，旧正则会漏）。"""
+    key = "\\boxed{"
+    i = text.rfind(key)
+    if i == -1:
+        return None
+    depth, j = 1, i + len(key)
+    start = j
+    while j < len(text) and depth:
+        depth += (text[j] == "{") - (text[j] == "}")
+        j += 1
+    return text[start:j - 1].strip() if depth == 0 else None
+
+
+def strip_think(text):
+    """剥掉 Qwen3 的 <think>...</think> 块，便于对辅助步输出做结构化解析。"""
+    return re.sub(r"(?s)<think>.*?</think>\s*", "", text).strip()
 
 
 def verify(pred_text, gold):
@@ -53,22 +68,26 @@ class Teacher:
         )
         self.tok = self.llm.get_tokenizer()
 
-    def chat_full(self, users, temperature, max_tokens, n=1):
+    def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True):
         """users: list[str] → list[list[dict(text, finish, ntok)]]。
-        finish=='length' 即撞 max_tokens 被截断——教师被截断＝拿坏数据去训练，必须能被统计到。"""
+        finish=='length' 即撞 max_tokens 被截断——教师被截断＝拿坏数据去训练，必须能被统计到。
+        enable_thinking：推理目标步(standard/R_f/R_b/造解)保持 True 留完整 CoT；辅助解析步(造逆问题/
+        一致性判定/造题)必须传 False——否则 Qwen3 默认先吐 <think>，短输出步永远等不到 True/False。"""
         from vllm import SamplingParams
 
         prompts = [
-            self.tok.apply_chat_template([{"role": "user", "content": u}], tokenize=False, add_generation_prompt=True)
+            self.tok.apply_chat_template([{"role": "user", "content": u}], tokenize=False,
+                                         add_generation_prompt=True, enable_thinking=enable_thinking)
             for u in users
         ]
         sp = SamplingParams(temperature=temperature, top_p=0.95, max_tokens=max_tokens, n=n)
         outs = self.llm.generate(prompts, sp)
         return [[{"text": c.text, "finish": c.finish_reason, "ntok": len(c.token_ids)} for c in o.outputs] for o in outs]
 
-    def chat(self, users, temperature, max_tokens, n=1):
+    def chat(self, users, temperature, max_tokens, n=1, enable_thinking=True):
         """只要文本时的薄封装 → list[list[str]]。"""
-        return [[c["text"] for c in cs] for cs in self.chat_full(users, temperature, max_tokens, n)]
+        return [[c["text"] for c in cs]
+                for cs in self.chat_full(users, temperature, max_tokens, n, enable_thinking=enable_thinking)]
 
 
 class APITeacher:
@@ -100,7 +119,7 @@ class APITeacher:
                     return ""
                 time.sleep(2 ** attempt)  # 退避重试
 
-    def chat(self, users, temperature, max_tokens, n=1):
+    def chat(self, users, temperature, max_tokens, n=1, enable_thinking=True):
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         out = [[] for _ in users]
@@ -113,8 +132,9 @@ class APITeacher:
                 out[fut2idx[f]].append(f.result())
         return out
 
-    def chat_full(self, users, temperature, max_tokens, n=1):
-        """与 Teacher.chat_full 同签名；API 端拿不到可靠的 finish_reason/token 数，故留空。"""
+    def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True):
+        """与 Teacher.chat_full 同签名；API 端拿不到可靠的 finish_reason/token 数，故留空。
+        enable_thinking 仅为签名对齐——API 端 thinking 由所选 model 决定，此处不透传。"""
         return [[{"text": s, "finish": None, "ntok": None} for s in cs]
                 for cs in self.chat(users, temperature, max_tokens, n)]
 
@@ -130,15 +150,19 @@ def read_seed(path):
 def save(rows, out, n_seed, method):
     out = os.path.expanduser(out)
     os.makedirs(out, exist_ok=True)
+    if not rows:                                # 0 产出必是异常（thinking 没关/过滤过严/教师没起来）——拒绝写空/坏 schema parquet
+        raise SystemExit(f"[{method}] 0 条产出，拒绝写空数据集：检查 thinking 开关、截断过滤、教师是否正常。")
     df = pd.DataFrame(rows)
     # 打散再切 val：种子在 MATH 里常按 level 排序，不打散会让 val 全落在某难度；reverse 的三元组相邻，
     # 打散也顺带把它们分开（val 仅用于 loss 监控，最终评测在 held-out OlymMATH，轻微相关无碍）。
     if len(df) > 1:
         df = df.sample(frac=1.0, random_state=0).reset_index(drop=True)
     n_val = max(1, int(len(df) * 0.05)) if len(df) > 20 else 1
+    n_val = min(n_val, len(df) - 1)             # 保证 train 至少 1 条（极小产出时不把唯一样本切进 val）
     df.iloc[n_val:].to_parquet(os.path.join(out, "train.parquet"))
-    df.iloc[:n_val].to_parquet(os.path.join(out, "val.parquet"))
-    print(f"[{method}] 种子 {n_seed} → 产出 {len(df)} 条 messages -> {out}", flush=True)
+    if n_val > 0:
+        df.iloc[:n_val].to_parquet(os.path.join(out, "val.parquet"))
+    print(f"[{method}] 种子 {n_seed} → 产出 {len(df)} 条 messages（train {len(df) - n_val} / val {n_val}）-> {out}", flush=True)
 
 
 def gen_stats(out, method, max_new, n_seed, n_kept, n_cand, n_trunc, ntoks):
@@ -221,8 +245,9 @@ def m_reverse(t, items, a):
     if not kept:
         gen_stats(a.out, a.method, a.max_new, len(items), 0, n_cand, n_trunc, ntoks)
         return []
-    # Step2: 逆向问题 Q_b（短输出 512，不计入截断统计）
-    qb = [c[0].strip() for c in t.chat([I_BQ.format(q=q, a=gt) for q, gt, _ in kept], a.temp, 512, n=1)]
+    # Step2: 逆向问题 Q_b（短输出 512，不计入截断统计）；关 thinking + 剥残留 <think>，否则拿到的是带标签的推理垃圾
+    qb = [strip_think(c[0]) for c in t.chat([I_BQ.format(q=q, a=gt) for q, gt, _ in kept],
+                                            a.temp, 512, n=1, enable_thinking=False)]
     # Step3: 逆向推理 R_b，同样过滤截断
     rb_out = t.chat_full([q + " " + BOXED_INSTR for q in qb], a.temp, a.max_new, n=1)
     idxs, con_users = [], []

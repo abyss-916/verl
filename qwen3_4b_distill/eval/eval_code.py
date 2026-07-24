@@ -57,35 +57,51 @@ def main():
         df = df.iloc[: a.limit]
     if a.num_shards > 1:
         df = df.iloc[a.shard :: a.num_shards]
-    items = [(r["prompt"][0]["content"], r["reward_model"]["ground_truth"]) for _, r in df.iterrows()]
+    def _meta(r):
+        ex = r["extra_info"] if "extra_info" in df.columns and r["extra_info"] is not None else {}
+        try:
+            ex = dict(ex)
+        except Exception:
+            ex = {}
+        return {k: ex[k] for k in ("difficulty", "platform", "testtype", "question_id") if ex.get(k) is not None}
 
-    llm = LLM(model=a.model, trust_remote_code=True, tensor_parallel_size=a.tp,
-              gpu_memory_utilization=a.gpu_mem, max_model_len=a.max_new + 2048)
-    tok = llm.get_tokenizer()
+    items = [(r["prompt"][0]["content"], r["reward_model"]["ground_truth"], _meta(r)) for _, r in df.iterrows()]
+
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
     ck = {} if not a.no_thinking else {"enable_thinking": False}
     prompts = [tok.apply_chat_template([{"role": "user", "content": q}], tokenize=False, add_generation_prompt=True, **ck)
-               for q, _ in items]
+               for q, _, _ in items]
+    # max_model_len 按最长题面动态定：保证每题都留够 max_new 的真实生成预算，长题面才不会把预算挤小→假性截断(不可比)
+    max_prompt = max((len(tok(p)["input_ids"]) for p in prompts), default=0)
+    max_model_len = min(40960, a.max_new + max_prompt + 256)
+    llm = LLM(model=a.model, trust_remote_code=True, tensor_parallel_size=a.tp,
+              gpu_memory_utilization=a.gpu_mem, max_model_len=max_model_len)
     outs = llm.generate(prompts, SamplingParams(temperature=a.temp, top_p=a.top_p, max_tokens=a.max_new, n=a.n))
 
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
     sum_avg, sum_passk, n_trunc, n_tok, n_gen = 0.0, 0.0, 0, 0, 0
     with open(os.path.join(out, "per_question.jsonl"), "w") as f:
-        for (q, gt), o in zip(items, outs):
+        for (q, gt, meta), o in zip(items, outs):
             scores = [1 if compute_score("livecodebench", extract_code(s.text), gt) >= 1.0 else 0 for s in o.outputs]
             trunc = [1 if s.finish_reason == "length" else 0 for s in o.outputs]
             toks = [len(s.token_ids) for s in o.outputs]
             nc, nn = sum(scores), len(scores)
-            sum_avg += nc / nn
-            sum_passk += pass_at_k(nn, nc, k)
+            avg, pk = nc / nn, pass_at_k(nn, nc, k)
+            sum_avg += avg
+            sum_passk += pk
             n_trunc += sum(trunc)
             n_tok += sum(toks)
             n_gen += nn
-            f.write(json.dumps({"n_pass": nc, "n": nn, "n_truncated": sum(trunc), "new_tokens": toks},
-                               ensure_ascii=False) + "\n")
+            # 与 eval_math 同构：带 question/avg/pass@k/切片字段，slice_eval(归因) 与 merge_shards(分片合并) 才能用
+            f.write(json.dumps({"question": q, **meta, "n_pass": nc, "n": nn,
+                                "avg": avg, f"pass@{k}": pk,
+                                "n_truncated": sum(trunc), "new_tokens": toks}, ensure_ascii=False) + "\n")
 
     N = len(items)
-    summary = {"model": a.model, "data": a.data, "n_samples": a.n, "num_questions": N,
+    summary = {"model": a.model, "data": a.data, "n_samples": a.n, "thinking": not a.no_thinking,
+               "num_questions": N,
                "pass@1 (avg@n)": round(sum_avg / N, 4) if N else 0,
                f"pass@{k}": round(sum_passk / N, 4) if N else 0,
                "max_new": a.max_new,

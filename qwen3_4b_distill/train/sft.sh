@@ -28,15 +28,20 @@ USE_PEFT=${USE_PEFT:-0}     # 默认全参 SFT；显存不够改 1 走 LoRA
 LR=${LR:-1e-5}
 
 if [ "${TEST:-0}" = "1" ]; then
-  MB=1; MAXLEN=1024; EPOCHS=1
+  MB=1; MAXLEN=1024; EPOCHS=1; TRUNC=right     # 冒烟只验"跑通/不缺库/小配置不 OOM"，允许右截断
 else
-  # ⚠️ MAXLEN 必须覆盖蒸馏数据长度，否则 data.truncation=right 会把长 CoT 右截断——
-  #    保留开头、丢掉结尾 \boxed 答案，变成"没有答案的半截 CoT"坏样本(比不训还糟)。
-  #    正式训前按该方法 gen_stats.json：MAXLEN 尽量设 ≥ tok_max(而非仅 p99)；若 tok_max 太大装不下，
-  #    宁可造数据后【预删】超长行，也别让它们被截断进训练。显存不够降 MB(micro-batch)，别降 MAXLEN。
+  # ⚠️ MAXLEN 必须覆盖蒸馏数据长度。下方 data.truncation=error 让超长行【直接报错】而非静默右截断，
+  #    杜绝"丢掉结尾 \boxed 的半截 CoT"坏样本进训练；配合造数据后【预删】超长行 + 训练前长度预检(下方)使用。
+  #    正式训前按该方法 gen_stats.json 定 MAXLEN：尽量 ≥ tok_max；tok_max 太大装不下就预删超长行。
   #    16384 覆盖实测 p99≈11.6K，仅作缺省；见 gen_stats.json 再定。
-  MB=${MB:-2}; MAXLEN=${MAXLEN:-16384}; EPOCHS=${EPOCHS:-3}
+  #    ⚠️ 显存不够：动态批(use_dynamic_bsz)下 MB 基本是空操作，真正省显存靠 ①SP_SIZE=2(序列并行，跨两卡切
+  #       长序列、保样本不删，需 USE_FLASH=1) ②activation offload/梯度检查点。别降 MAXLEN/MAX_TOKENS(等于逼你丢长 CoT)。
+  MB=${MB:-2}; MAXLEN=${MAXLEN:-16384}; EPOCHS=${EPOCHS:-3}; TRUNC=error
 fi
+# ⚠️ 动态批每卡 token 预算，必须 >= 最长样本；verl 缺省仅 8192，长样本会触发 seqlen_balancing.py 的 assert 崩溃(白跑)
+MAX_TOKENS=${MAX_TOKENS:-$MAXLEN}
+# 全局(优化器)batch；verl 缺省 256 → ~2000 样本一个 epoch 仅 ~8 步、3 epoch ~23 步易欠拟合。显式设小多走几步；三法须一致以公平对比
+TBS=${TBS:-32}
 
 extra=()
 if [ "$USE_PEFT" = "1" ]; then
@@ -51,6 +56,23 @@ else
   accel+=(data.pad_mode=right model.use_remove_padding=false model.override_config.attn_implementation=sdpa)
 fi
 
+# 预检(非冒烟)：训练前先确认没有样本 > MAXLEN，否则 truncation=error 会在训练【中途】才崩=白跑数小时
+if [ "${TEST:-0}" != "1" ]; then
+  python - "$MODEL_PATH" "$DATA_DIR/train.parquet" "$DATA_DIR/val.parquet" "$MAXLEN" <<'PY'
+import sys, pandas as pd
+from transformers import AutoTokenizer
+tok = AutoTokenizer.from_pretrained(sys.argv[1], trust_remote_code=True)
+maxlen, mx, n_over = int(sys.argv[4]), 0, 0
+for pq in sys.argv[2:4]:
+    for msgs in pd.read_parquet(pq)["messages"]:
+        L = len(tok.apply_chat_template(list(msgs), tokenize=True, add_generation_prompt=False))
+        mx = max(mx, L); n_over += L > maxlen
+print(f"[sft] 预检：最长样本 {mx} tokens；> MAXLEN({maxlen}) 的行数：{n_over}")
+if n_over:
+    sys.exit(f"[sft] X {n_over} 行超 MAXLEN={maxlen}：请预删超长行或调大 MAXLEN/MAX_TOKENS 再训（否则中途崩=白跑）")
+PY
+fi
+
 torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   -m verl.trainer.sft_trainer \
   data.train_files=$DATA_DIR/train.parquet \
@@ -58,8 +80,11 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   data.messages_key=messages \
   data.ignore_input_ids_mismatch=True \
   data.micro_batch_size_per_gpu=$MB \
+  data.train_batch_size=$TBS \
+  data.use_dynamic_bsz=True \
+  data.max_token_len_per_gpu=$MAX_TOKENS \
   data.max_length=$MAXLEN \
-  data.truncation=right \
+  data.truncation=$TRUNC \
   optim.lr=$LR \
   engine=fsdp \
   engine.ulysses_sequence_parallel_size=$SP_SIZE \

@@ -128,7 +128,10 @@ def main():
         if len(src) != n0:
             print(f"去重: {n0} -> {len(src)}（按 question_id）", flush=True)
 
-    if (a.date_start or a.date_end) and "contest_date" in src.column_names:  # 防污染时间窗
+    if a.date_start or a.date_end:  # 防污染时间窗
+        if "contest_date" not in src.column_names:  # fail-closed：宁可报错也不输出"未过滤/可能被污染"的全量
+            raise SystemExit(f"[fatal] 指定了防污染时间窗，但数据无 contest_date 列（实际列: {src.column_names}）——"
+                             f"拒绝输出未过滤的全量。请确认日期列名或去掉 --date_start/--date_end。")
         s, e = a.date_start, a.date_end
 
         def _in_window(ex):
@@ -142,6 +145,11 @@ def main():
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
     d = src.map(lambda ex, i: build_row(ex, i, "test", a.data_source), with_indices=True)
+    n0 = len(d)
+    # 丢 0 测试用例的题：prime_code 对空测试 all([])==True 会判满分 → 假性抬高 pass@1 / GRPO 白送 reward
+    d = d.filter(lambda ex: ex["extra_info"]["n_tests"] > 0)
+    if len(d) != n0:
+        print(f"[warn] 丢弃 {n0 - len(d)} 道 0 测试用例的题（避免假满分）", flush=True)
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
     d = d.remove_columns([c for c in d.column_names if c not in keep])
     d.to_parquet(os.path.join(out, "test.parquet"))

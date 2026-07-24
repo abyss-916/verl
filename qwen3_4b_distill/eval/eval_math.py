@@ -28,8 +28,17 @@ def pass_at_k(n, c, k):
 
 
 def extract_boxed(text):
-    m = re.findall(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", text)
-    return m[-1].strip() if m else None
+    """取最后一个 \\boxed{...}，括号配平支持任意层嵌套（\\frac{a}{\\sqrt{2}} 这类双层，旧正则会漏→cons 少数错算）。"""
+    key = "\\boxed{"
+    i = text.rfind(key)
+    if i == -1:
+        return None
+    depth, j = 1, i + len(key)
+    start = j
+    while j < len(text) and depth:
+        depth += (text[j] == "{") - (text[j] == "}")
+        j += 1
+    return text[start:j - 1].strip() if depth == 0 else None
 
 
 def main():

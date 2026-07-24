@@ -21,6 +21,8 @@ LIMIT=${LIMIT:-2000}                     # 正式用多少 seed
 SMOKE=${SMOKE:-16}                       # 冒烟 seed 数
 GPU_MEM=${GPU_MEM:-0.9}                   # 按 nvidia-smi 定：两卡空 0.9；共卡调低
 TP=${TP:-2}                              # 8B 教师满预算(40960 KV)单卡放不下 → 必须 tp=2
+GPUS=${GPUS:-0,1}                         # 先看 nvidia-smi 再定用哪两张卡（共享机，避免撞别人占用的卡）
+export CUDA_VISIBLE_DEVICES=$GPUS
 SEED=${SEED:-$SEED_DIR/train.parquet}    # MATH 种子（绝不用 olymmath——那是 held-out 评测集）
 OUT=${OUT:-$DATA/distill/$METHOD}
 # max_new/max_len 不传 → 用 generate_cot.py 默认(38912/40960)满预算，别为省时改小
@@ -31,6 +33,19 @@ echo "[gen] seed=$SEED  out=$OUT  teacher=$TEACHER"
 echo "[gen] === 冒烟 $SMOKE 条（验 tp=2 起得来 + 数据质量），写 ${OUT}_smoke ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
   --out "${OUT}_smoke" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$SMOKE"
+
+# 冒烟门控：只看退出码不够——reverse/qaug 可能"跑通但 0 产出"（如 thinking 没关），必须按 n_kept 拦截，
+# 否则会放行几小时的正式 run 全程白跑。
+python - "$SMOKE" "${OUT}_smoke/gen_stats.json" <<'PY'
+import json, sys
+smoke, p = int(sys.argv[1]), sys.argv[2]
+st = json.load(open(p))
+kept = st.get("n_kept", 0)
+need = max(1, int(smoke * 0.3))            # 要求 >=30% 种子有产出，防"跑通但全灭"
+if kept < need:
+    sys.exit(f"[gen] X 冒烟 n_kept={kept} < 阈值 {need}（良率过低/疑似 0 产出），拒绝起正式 run。先查 {p}")
+print(f"[gen] OK 冒烟 n_kept={kept} >= {need}，放行正式 run")
+PY
 
 echo "[gen] === 冒烟通过，起正式 $LIMIT 条 -> $OUT ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \

@@ -51,7 +51,7 @@ def main():
     m = metas[0]
     summary = {
         "model": m["model"], "data": m["data"], "n_samples": m["n_samples"],
-        "thinking": m["thinking"], "num_questions": N,
+        "thinking": m.get("thinking"), "num_questions": N,   # code summary 可能无 thinking 字段 → .get 容错，令 code 分片也能合并
         "pass@1 (avg@n)": round(sum(r["avg"] for r in rows) / N, 4),
         pk_key: round(sum(r[pk_key] for r in rows) / N, 4),
         "max_new": m["max_new"],
@@ -66,9 +66,16 @@ def main():
 
         from verl.utils.reward_score.math_verify import compute_score as _cs
 
-        def _boxed(t):
-            mm = _re.findall(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", t)
-            return mm[-1].strip() if mm else None
+        def _boxed(t):                              # 括号配平，支持任意层嵌套（与 eval_math.extract_boxed 一致）
+            i = t.rfind("\\boxed{")
+            if i == -1:
+                return None
+            depth, j = 1, i + len("\\boxed{")
+            start = j
+            while j < len(t) and depth:
+                depth += (t[j] == "{") - (t[j] == "}")
+                j += 1
+            return t[start:j - 1].strip() if depth == 0 else None
 
         for r in rows:
             bs = [b for b in (_boxed(s) for s in r["samples"]) if b]

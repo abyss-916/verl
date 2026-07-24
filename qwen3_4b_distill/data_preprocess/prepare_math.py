@@ -152,18 +152,27 @@ def main():
             print(f"[warn] split={split} 加载失败（可能本就无此 split）：{e}", flush=True)
     if train_ds is None and test_ds is None:
         raise SystemExit("[fatal] train/test 均无法加载——检查数据集名 / 源(--source) / 网络")
-    if train_ds is None:
-        train_ds = test_ds
-    if test_ds is None:
-        test_ds = train_ds
-    print(f"loaded | train={len(train_ds)} test={len(test_ds)} | columns={train_ds.column_names}", flush=True)
+    print(f"loaded | train={len(train_ds) if train_ds else 0} test={len(test_ds) if test_ds else 0} | "
+          f"columns={(train_ds or test_ds).column_names}", flush=True)
 
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
 
+    # ⚠️ 只写真正加载到的 split：eval-only 数据集(OlymMATH 只有 test)【绝不】把 test 复制成 train.parquet，
+    #    否则被误当种子蒸馏 = 评测集泄漏(蒸出的 CoT 训到 held-out 题上，分数假性冲顶)。
     for name, d0 in [("train", train_ds), ("test", test_ds)]:
+        if d0 is None:
+            print(f"[skip] 无 {name} split → 不写 {name}.parquet（不拿另一 split 顶替，避免泄漏陷阱）", flush=True)
+            continue
         d = d0.map(make_map_fn(name, a.data_source), with_indices=True)
+        n0 = len(d)
+        # 丢无答案行：to_answer(None) 会让 ground_truth 变字符串 "None"，judge 恒判 0（eval 假性压分 / GRPO 该 prompt 永远 0 reward）
+        d = d.filter(lambda ex: ex["reward_model"]["ground_truth"] not in ("None", "", "none"))
+        if len(d) != n0:
+            print(f"[warn] {name}: 丢弃 {n0 - len(d)} 无答案行", flush=True)
+        if len(d) == 0:
+            raise SystemExit(f"[fatal] {name}: 过滤后 0 行——检查答案列(A_KEYS)是否匹配该数据集")
         d = d.remove_columns([c for c in d.column_names if c not in keep])
         d.to_parquet(os.path.join(out, f"{name}.parquet"))
         with open(os.path.join(out, f"{name}_example.json"), "w") as f:
