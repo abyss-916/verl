@@ -59,6 +59,22 @@ def main():
         "mean_new_tokens": round(sum(sum(r.get("new_tokens", [])) for r in rows) / n_gen, 1),
         "merged_from": [os.path.expanduser(d) for d in a.shards],
     }
+    # cons@n（多数投票）：新版 eval_math 逐题已带 "cons"；base eval(旧代码)只有 "samples" → 从中补算
+    if not any("cons" in r for r in rows) and all("samples" in r and "gt" in r for r in rows):
+        import re as _re
+        from collections import Counter as _Counter
+
+        from verl.utils.reward_score.math_verify import compute_score as _cs
+
+        def _boxed(t):
+            mm = _re.findall(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", t)
+            return mm[-1].strip() if mm else None
+
+        for r in rows:
+            bs = [b for b in (_boxed(s) for s in r["samples"]) if b]
+            r["cons"] = 1 if bs and _cs("\\boxed{" + _Counter(bs).most_common(1)[0][0] + "}", str(r["gt"])) >= 1.0 else 0
+    if any("cons" in r for r in rows):
+        summary[f"cons@{m['n_samples']}"] = round(sum(r.get("cons", 0) for r in rows) / N, 4)
     with open(os.path.join(out, "summary.json"), "w") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(json.dumps(summary, ensure_ascii=False, indent=2))

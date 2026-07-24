@@ -14,6 +14,8 @@ import argparse
 import json
 import math
 import os
+import re
+from collections import Counter
 
 import pandas as pd
 
@@ -23,6 +25,11 @@ def pass_at_k(n, c, k):
     if n - c < k:
         return 1.0
     return 1.0 - math.prod((n - c - i) / (n - i) for i in range(k))
+
+
+def extract_boxed(text):
+    m = re.findall(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", text)
+    return m[-1].strip() if m else None
 
 
 def main():
@@ -82,7 +89,7 @@ def main():
 
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
-    sum_avg, sum_passk, n_trunc, n_tok, n_gen = 0.0, 0.0, 0, 0, 0
+    sum_avg, sum_passk, sum_cons, n_trunc, n_tok, n_gen = 0.0, 0.0, 0.0, 0, 0, 0
     with open(os.path.join(out, "per_question.jsonl"), "w") as f:
         for (q, gt, meta), o in zip(items, outs):
             corr = [1 if compute_score(s.text, str(gt)) >= 1.0 else 0 for s in o.outputs]
@@ -92,13 +99,18 @@ def main():
             toks = [len(s.token_ids) for s in o.outputs]
             nc, nn = sum(corr), len(corr)
             avg, pk = nc / nn, pass_at_k(nn, nc, k)
+            # cons@n（self-consistency 多数投票，对齐 OlymMATH 论文 Cons）：取 \boxed 答案的众数判其是否正确
+            boxeds = [b for b in (extract_boxed(s.text) for s in o.outputs) if b]
+            cons = 1 if boxeds and compute_score("\\boxed{" + Counter(boxeds).most_common(1)[0][0] + "}",
+                                                 str(gt)) >= 1.0 else 0
             sum_avg += avg
             sum_passk += pk
+            sum_cons += cons
             n_trunc += sum(trunc)
             n_tok += sum(toks)
             n_gen += nn
             f.write(json.dumps({"question": q, "gt": str(gt), **meta, "n_correct": nc, "n": nn,
-                                "avg": avg, f"pass@{k}": pk,
+                                "avg": avg, f"pass@{k}": pk, "cons": cons,
                                 "n_truncated": sum(trunc), "new_tokens": toks,
                                 "samples": [s.text for s in o.outputs]}, ensure_ascii=False) + "\n")
 
@@ -108,6 +120,7 @@ def main():
         "num_questions": N,
         "pass@1 (avg@n)": round(sum_avg / N, 4) if N else 0,
         f"pass@{k}": round(sum_passk / N, 4) if N else 0,
+        f"cons@{a.n}": round(sum_cons / N, 4) if N else 0,
         "max_new": a.max_new,
         "truncated_rate": round(n_trunc / n_gen, 4) if n_gen else 0,
         "mean_new_tokens": round(n_tok / n_gen, 1) if n_gen else 0,
