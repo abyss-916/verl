@@ -131,8 +131,8 @@ def m_standard(t, items, a):
     outs = t.chat([q for q, _ in items], a.temp, a.max_new, n=a.n)
     rows = []
     for (q, gt), cands in zip(items, outs):
-        for text in cands:  # 留第一个答对的
-            if gt is not None and verify(text, gt):
+        for text in cands:  # 留第一个"答对 且 完整(含 \boxed，非截断)"的
+            if gt is not None and "\\boxed" in text and verify(text, gt):
                 rows.append(msg_row(q, text))
                 break
     return rows
