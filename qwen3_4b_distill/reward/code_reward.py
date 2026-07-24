@@ -14,6 +14,25 @@ ground_truth 由 `prepare_code.py` 预先转成 prime_code 期望的格式（jso
 
 import json
 import os
+import sys
+import types
+
+# ── pyext 兼容垫片（py3.12）──
+# verl 的 prime_code/testing_util.py 顶部 `from pyext import RuntimeModule`；pyext 0.7 用了
+# py3.11 已移除的 inspect.getargspec，在 py3.12 装不上。这里用 stdlib 提供等价 RuntimeModule
+# （从代码串建模块），避免依赖 pyext，也不改 verl 核心。prime_code 仅用到 from_string 一处。
+if "pyext" not in sys.modules:
+    _pyext = types.ModuleType("pyext")
+
+    class _RuntimeModule:
+        @staticmethod
+        def from_string(name, docstring, source):
+            mod = types.ModuleType(str(name), docstring)
+            exec(source, mod.__dict__)
+            return mod
+
+    _pyext.RuntimeModule = _RuntimeModule
+    sys.modules["pyext"] = _pyext
 
 
 def compute_score(data_source, solution_str, ground_truth, extra_info=None):
