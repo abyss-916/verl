@@ -75,7 +75,7 @@ python3 -m verl.trainer.main_ppo \
 
 # ── 2×3090 关键点 ──
 # use_kl_loss=False + use_kl_in_reward=False → 去 ref model，省一份 4B 权重（GRPO 仍成立）。
-# param/optimizer offload=True → 必须。 rollout TP=1（DP=2）+ gpu_mem_util=0.4 + free_cache_engine=True。
+# param/optimizer offload=True → 必须。 rollout TP=1（DP=2）+ gpu_mem_util=0.5 + free_cache_engine=True。
 #
 # ── code / LiveCodeBench ──
 # 用我们的 code_reward.py（复用 verl prime_code 本地执行单测）：
@@ -84,4 +84,4 @@ python3 -m verl.trainer.main_ppo \
 #   reward.reward_manager.name=prime
 # 想用云沙箱则设环境变量 SANDBOX_FUSION_URL，或直接：
 #   reward.sandbox_fusion.url=http://127.0.0.1:PORT/run_code   reward.sandbox_fusion.max_concurrent=64
-# 注意 code 测试用例格式（prime_code 期望 {inputs,outputs}，见 reward/code_reward.py 的转换 TODO）。
+# 注意 code 测试用例格式：prepare_code 存 LCB 原始 input/output 串，prime_code 按 fn_name 自解析（已打通，合成解验证 1.0/0）。

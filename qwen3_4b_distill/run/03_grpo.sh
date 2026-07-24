@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# GRPO 后训练 + grpo_eval（从 SFT ckpt 起）。2×3090 上单次量级数天——tmux/nohup 后台跑，早启动。
+# GRPO 后训练 + grpo_eval（从 SFT ckpt 起）。定位=短 PoC(EPOCHS=1≈几百步~1晚,非必交加分,见 doc/报告_方法学.md §7)；tmux/nohup 后台跑。
 # 首次务必： TEST=1 bash run/03_grpo.sh   验证不 OOM 再正式跑。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
