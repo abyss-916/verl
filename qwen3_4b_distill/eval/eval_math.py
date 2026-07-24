@@ -37,9 +37,16 @@ def main():
     ap.add_argument("--temp", type=float, default=0.6)   # thinking 采样默认
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--top_k", type=int, default=20)
-    ap.add_argument("--max_new", type=int, default=8192)
+    # 38912 = Qwen3 官方对"数学/编程竞赛类 benchmark"的推荐输出长度；+2048 prompt 后正好顶满
+    # max_position_embeddings=40960。再高必须开 YaRN，会改变模型行为、破坏与论文锚点可比性，故到此为止。
+    # ⚠️ 别为省时间调小：截断样本必然判错，实测 32768 时 base 仍有 15% 撞顶，8192 时 96% 撞顶（分数假性归零）。
+    ap.add_argument("--max_new", type=int, default=38912)
     ap.add_argument("--no_thinking", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
+    # 多卡分片：同一份 data 交错切成 num_shards 份（df.iloc[shard::num_shards]，难度自然均衡），
+    # 每张卡跑一片、各自 --out，最后用 merge_shards.py 合成一份总 summary。
+    ap.add_argument("--shard", type=int, default=0, help="分片编号，0-based")
+    ap.add_argument("--num_shards", type=int, default=1, help="总分片数；=1 即不分片")
     a = ap.parse_args()
     k = a.k or a.n
 
@@ -50,6 +57,8 @@ def main():
     df = pd.read_parquet(a.data)
     if a.limit > 0:
         df = df.iloc[: a.limit]
+    if a.num_shards > 1:
+        df = df.iloc[a.shard :: a.num_shards]
     def _meta(r):
         ex = r["extra_info"] if "extra_info" in df.columns and r["extra_info"] is not None else {}
         try:
@@ -71,21 +80,27 @@ def main():
     sp = SamplingParams(temperature=a.temp, top_p=a.top_p, top_k=a.top_k, max_tokens=a.max_new, n=a.n)
     outs = llm.generate(prompts, sp)
 
-    os.makedirs(os.path.expanduser(a.out), exist_ok=True)
     out = os.path.expanduser(a.out)
-    per_q, sum_avg, sum_passk = [], 0.0, 0.0
+    os.makedirs(out, exist_ok=True)
+    sum_avg, sum_passk, n_trunc, n_tok, n_gen = 0.0, 0.0, 0, 0, 0
     with open(os.path.join(out, "per_question.jsonl"), "w") as f:
         for (q, gt, meta), o in zip(items, outs):
-            corr = [1 if compute_score(c.text, str(gt)) >= 1.0 else 0 for c in o.outputs]
-            c = sum(corr)
-            avg = c / len(corr)
-            pk = pass_at_k(len(corr), c, k)
+            corr = [1 if compute_score(s.text, str(gt)) >= 1.0 else 0 for s in o.outputs]
+            # finish_reason=="length" ＝撞生成上限被截断。截断样本必然判错，是效度杀手 → 必须逐条统计，
+            # 让 summary 自带截断率，任何一次 eval 都能立刻看出分数是不是被预算压出来的。
+            trunc = [1 if s.finish_reason == "length" else 0 for s in o.outputs]
+            toks = [len(s.token_ids) for s in o.outputs]
+            nc, nn = sum(corr), len(corr)
+            avg, pk = nc / nn, pass_at_k(nn, nc, k)
             sum_avg += avg
             sum_passk += pk
-            per_q.append({"avg": avg, "pass_at_k": pk, "n_correct": c})
-            f.write(json.dumps({"question": q, "gt": str(gt), **meta, "n_correct": c, "n": len(corr),
+            n_trunc += sum(trunc)
+            n_tok += sum(toks)
+            n_gen += nn
+            f.write(json.dumps({"question": q, "gt": str(gt), **meta, "n_correct": nc, "n": nn,
                                 "avg": avg, f"pass@{k}": pk,
-                                "samples": [c.text for c in o.outputs]}, ensure_ascii=False) + "\n")
+                                "n_truncated": sum(trunc), "new_tokens": toks,
+                                "samples": [s.text for s in o.outputs]}, ensure_ascii=False) + "\n")
 
     N = len(items)
     summary = {
@@ -93,7 +108,12 @@ def main():
         "num_questions": N,
         "pass@1 (avg@n)": round(sum_avg / N, 4) if N else 0,
         f"pass@{k}": round(sum_passk / N, 4) if N else 0,
+        "max_new": a.max_new,
+        "truncated_rate": round(n_trunc / n_gen, 4) if n_gen else 0,
+        "mean_new_tokens": round(n_tok / n_gen, 1) if n_gen else 0,
     }
+    if a.num_shards > 1:
+        summary["shard"] = f"{a.shard}/{a.num_shards}"
     with open(os.path.join(out, "summary.json"), "w") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
