@@ -1,35 +1,30 @@
-"""LiveCodeBench 等代码集的可验证奖励——复用 verl 的代码判分器（本地执行单测）。
-- 默认用 `prime_code`（APPS 式本地执行，无需 sandbox 服务）。
-- 若设了环境变量 `SANDBOX_FUSION_URL`，改用 `sandbox_fusion`（更安全的沙箱）。
+"""LiveCodeBench 等代码集的可验证奖励——复用 verl 的代码判分器（基于 LiveCodeBench 的 prime_code）。
+- 默认用 `prime_code`（APPS/LCB 式本地执行，带超时；无需 sandbox 服务）。
+- 若设了环境变量 `SANDBOX_FUSION_URL`，改用 `sandbox_fusion`（沙箱执行，更安全）。
 GRPO/eval 挂载：custom_reward_function.path=/data/liujiachen/verl/qwen3_4b_distill/reward/code_reward.py
 
-⚠️ 安全（共享服务器！）：`prime_code` 会**本地执行模型生成的任意 Python**——在共享机上有风险。
-   正式跑 code 线**强烈建议先起 sandbox** 并设 `SANDBOX_FUSION_URL`，用沙箱执行，别裸跑 prime_code。
-⚠️ 测试用例格式：prime_code 期望 APPS 式 {"inputs":[...],"outputs":[...]}（或含 fn_name）。
-   LiveCodeBench 的 public_test_cases 格式可能不同，**首次跑必须核对 _normalize_tests 的转换**（见 TODO）。
+ground_truth 由 `prepare_code.py` 预先转成 prime_code 期望的格式（json 字符串）：
+    stdin      : {"inputs":[输入串,...], "outputs":[期望输出串,...]}
+    functional : {"inputs":[[参数,...],...], "outputs":[期望返回,...], "fn_name":"方法名"}
+故本文件不再猜测格式，直接解析后交给执行器。
+
+⚠️ 安全（共享服务器！）：`prime_code` 本地执行模型生成的代码——正式大规模跑前建议起 sandbox 并设
+   `SANDBOX_FUSION_URL`；小规模验证/评测可用 prime_code（自带 signal 超时）。
 """
 
 import json
 import os
 
 
-def _normalize_tests(ground_truth):
-    """把 ground_truth（JSON 字符串/对象）转成打分器期望的测试用例结构。
-    TODO(首跑后据 LCB 实际格式调整)：LCB 常见为 [{"input":..,"output":..,"testtype":..}, ...]，
-    prime_code 期望 {"inputs":[...],"outputs":[...]}。这里做一个尽力转换。"""
-    t = ground_truth
-    if isinstance(t, str):
-        try:
-            t = json.loads(t)
-        except Exception:
-            return ground_truth
-    if isinstance(t, list) and t and isinstance(t[0], dict) and "input" in t[0]:
-        return {"inputs": [c.get("input") for c in t], "outputs": [c.get("output") for c in t]}
-    return t
-
-
 def compute_score(data_source, solution_str, ground_truth, extra_info=None):
-    tests = _normalize_tests(ground_truth)
+    tests = ground_truth
+    if isinstance(tests, str):
+        try:
+            tests = json.loads(tests)
+        except Exception:
+            return 0.0
+    if not isinstance(tests, dict) or "inputs" not in tests:
+        return 0.0
     url = os.environ.get("SANDBOX_FUSION_URL")
     try:
         if url:

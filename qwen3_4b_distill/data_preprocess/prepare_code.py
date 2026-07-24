@@ -15,34 +15,81 @@
 """
 
 import argparse
+import base64
 import glob
 import json
 import os
+import pickle
+import zlib
 
 import datasets
 
-PROMPT_TMPL = (
-    "You are an expert competitive programmer. Solve the following problem in Python. "
-    "Put the final solution in a single ```python code block.\n\n{q}\n{starter}"
+# 类型化 prompt：stdin(AtCoder/CF)读标准输入；functional(LeetCode)补全 starter_code 里的方法。
+STDIN_TMPL = (
+    "You are an expert competitive programmer. Solve the problem in Python 3. "
+    "Read input from standard input and write the answer to standard output. "
+    "Put the complete solution in a single ```python code block.\n\n{q}"
+)
+FUNC_TMPL = (
+    "You are an expert competitive programmer. Complete the Python solution below by implementing "
+    "the required method. Put the complete solution in a single ```python code block.\n\n"
+    "{q}\n\n### Complete this starter code:\n```python\n{starter}\n```"
 )
 
 
+def _decode_private(raw):
+    """LCB private_test_cases 解码：优先直接 json；否则 base64→zlib→pickle→json（LCB 官方编码）。
+    ⚠️ pickle.loads 仅用于官方 LCB 数据（可信来源）；本步在数据准备期一次性做，不在评测热路径。"""
+    if not raw:
+        return []
+    try:
+        return json.loads(raw)
+    except Exception:
+        return json.loads(pickle.loads(zlib.decompress(base64.b64decode(raw.encode("utf-8")))))
+
+
+def _to_prime(ex):
+    """LCB 一题的 public+private 测试 → prime_code 期望的 {inputs,outputs,[fn_name]}：
+    - stdin      : inputs[i]=输入串, outputs[i]=期望输出串（无 fn_name）；
+    - functional : inputs[i]=参数列表(input 每行 json 解析), outputs[i]=期望返回(json), 顶层带 fn_name。"""
+    pub = json.loads(ex["public_test_cases"]) if ex.get("public_test_cases") else []
+    tests = list(pub) + list(_decode_private(ex.get("private_test_cases")))
+    functional = any(t.get("testtype") == "functional" for t in tests)
+    inputs, outputs = [], []
+    for t in tests:
+        if functional:
+            inputs.append([json.loads(x) for x in str(t["input"]).split("\n") if x.strip() != ""])
+            outputs.append(json.loads(t["output"]))
+        else:
+            inputs.append(t["input"])
+            outputs.append(t["output"])
+    prime = {"inputs": inputs, "outputs": outputs}
+    if functional:
+        meta = ex.get("metadata")
+        meta = json.loads(meta) if isinstance(meta, str) and meta else (meta or {})
+        if meta.get("func_name"):
+            prime["fn_name"] = meta["func_name"]
+    return prime
+
+
 def build_row(ex, idx, split, data_source):
-    q = ex.get("question_content") or ex.get("question") or ex.get("prompt") or ""
+    q = ex.get("question_content") or ex.get("question") or ""
     starter = ex.get("starter_code") or ""
-    # 公有测试用例（私有多为压缩/base64，实际评测用官方 harness 或 sandbox 解码）
-    pub = ex.get("public_test_cases") or ex.get("test_cases") or "[]"
-    gt = pub if isinstance(pub, str) else json.dumps(pub, ensure_ascii=False)
+    prime = _to_prime(ex)
+    functional = "fn_name" in prime
+    content = FUNC_TMPL.format(q=q, starter=starter) if functional else STDIN_TMPL.format(q=q)
     return {
         "data_source": data_source,
-        "prompt": [{"role": "user", "content": PROMPT_TMPL.format(q=q, starter=starter)}],
+        "prompt": [{"role": "user", "content": content}],
         "ability": "code",
-        "reward_model": {"style": "rule", "ground_truth": gt},
+        "reward_model": {"style": "rule", "ground_truth": json.dumps(prime, ensure_ascii=False)},
         "extra_info": {
             "split": split, "index": idx,
             "question_id": ex.get("question_id", idx),
             "difficulty": ex.get("difficulty", ""),
-            "starter_code": starter,
+            "platform": ex.get("platform", ""),
+            "testtype": "functional" if functional else "stdin",
+            "n_tests": len(prime["inputs"]),
         },
     }
 
