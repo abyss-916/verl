@@ -115,9 +115,18 @@ def main():
     split = "test" if "test" in ds else list(ds.keys())[0]
     print("splits:", list(ds.keys()), "| columns:", ds[split].column_names, flush=True)
 
+    src = ds[split]
+    if "question_id" in src.column_names:  # 多版本 jsonl 并集按 question_id 去重（保留首个）
+        n0 = len(src)
+        src = datasets.Dataset.from_pandas(
+            src.to_pandas().drop_duplicates(subset="question_id", keep="first").reset_index(drop=True)
+        )
+        if len(src) != n0:
+            print(f"去重: {n0} -> {len(src)}（按 question_id）", flush=True)
+
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
-    d = ds[split].map(lambda ex, i: build_row(ex, i, "test", a.data_source), with_indices=True)
+    d = src.map(lambda ex, i: build_row(ex, i, "test", a.data_source), with_indices=True)
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
     d = d.remove_columns([c for c in d.column_names if c not in keep])
     d.to_parquet(os.path.join(out, "test.parquet"))
