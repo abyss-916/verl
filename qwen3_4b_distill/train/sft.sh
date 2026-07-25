@@ -64,6 +64,14 @@ MODEL_DTYPE=${MODEL_DTYPE:-bf16}
 ACT_OFFLOAD=${ACT_OFFLOAD:-true}
 mem_args=(engine.model_dtype="$MODEL_DTYPE" model.enable_activation_offload="$ACT_OFFLOAD")
 
+# ⚠️ Qwen3 <think> 保真：verl 默认逐条 assistant 套模板，Qwen3 会把单条 assistant 的 <think>…</think>
+#   当"历史思考"剥掉 → 把"<think>推理</think>解答"训成"只有解答" → 模型学成不思考、难题崩(实测 pass@1 2%)。
+#   → 默认用整段渲染的自定义数据集(train/whole_conv_sft_dataset.py)保住 <think>。CUSTOM_DS=0 退回 verl 原生。
+CUSTOM_DS=${CUSTOM_DS:-1}
+CUSTOM_DS_PATH=${CUSTOM_DS_PATH:-/data/liujiachen/verl/qwen3_4b_distill/train/whole_conv_sft_dataset.py}
+ds_args=()
+[ "$CUSTOM_DS" = "1" ] && ds_args=(data.custom_cls.path="$CUSTOM_DS_PATH" data.custom_cls.name=WholeConvSFTDataset)
+
 extra=()
 if [ "$USE_PEFT" = "1" ]; then
   extra+=(model.lora_rank=32 model.lora_alpha=16 model.target_modules=all-linear)
@@ -116,7 +124,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
   trainer.total_epochs=$EPOCHS \
-  "${accel[@]}" "${extra[@]}" ${opt_args[@]+"${opt_args[@]}"} "${mem_args[@]}" "$@"
+  "${accel[@]}" "${extra[@]}" ${opt_args[@]+"${opt_args[@]}"} "${mem_args[@]}" ${ds_args[@]+"${ds_args[@]}"} "$@"
 
 # Liger 需先装：pip install liger-kernel（纯 Triton 轮子，不编译、不碰 glibc）。首跑先 TEST=1 冒烟，
 # 同时验证 flash-attn 算子在本机能跑；若冒烟报 flash-attn 相关错，用 USE_FLASH=0 回退再跑。
