@@ -259,7 +259,10 @@ def m_reverse(t, items, a):
         con_users.append(I_CON.format(q1=q, a1=gt, q2=qbi,
                                       a2=(extract_boxed(c["text"]) or c["text"].strip()[-64:])))
     # Step4: 一致性过滤（A2 = R_b 的最终答案，应能在 Q1 中找到且正确）→ 组装多目标样本
-    con = [c[0].strip().lower() for c in t.chat(con_users, 0.0, 8, n=1)] if con_users else []
+    # ⚠️ 关 thinking：一致性判定是短输出辅助步，Qwen3 默认会先吐 <think>，8~16token 全卡在思维块里
+    #    → 永远等不到 True/False → 全判 False → 0 留存（与 I_BQ 同因；曾漏修此处，导致 reverse 造 0）。
+    con = [strip_think(c[0]).strip().lower()
+           for c in t.chat(con_users, 0.0, 16, n=1, enable_thinking=False)] if con_users else []
     rows = []
     for j, i in enumerate(idxs):
         if con[j].startswith("true"):
