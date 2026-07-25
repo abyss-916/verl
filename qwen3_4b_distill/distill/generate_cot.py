@@ -300,9 +300,13 @@ def m_qaug(t, items, a):
             n_cand += 1; ntoks.append(c["ntok"])
             if c["finish"] == "length":
                 n_trunc += 1; continue
-            m = re.search(r"FINAL CREATED QUESTION:\s*(.+)", c["text"], re.S)
-            if m:
-                newqs.append(m.group(1).strip())
+            # 先剥 <think>：thinking 未关时模型可能在思维块里复述格式标记，直接 re.search 会抽到污染文本
+            txt = strip_think(c["text"])
+            idx = txt.rfind("FINAL CREATED QUESTION:")        # 取最后一个标记=最终版
+            if idx != -1:
+                nq = txt[idx + len("FINAL CREATED QUESTION:"):].strip()
+                if nq:
+                    newqs.append(nq)
     if not newqs:
         gen_stats(a.out, a.method, a.max_new, len(items), 0, n_cand, n_trunc, ntoks)
         return []
