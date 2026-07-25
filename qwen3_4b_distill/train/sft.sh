@@ -56,6 +56,14 @@ OPT_IMPL=${OPT_IMPL:-torchao.optim}
 opt_args=()
 [ "$OPT8BIT" = "1" ] && opt_args=(optim.optimizer="$OPT_NAME" optim.optimizer_impl="$OPT_IMPL")
 
+# 显存大头(2×3090)：model_dtype 默认 fp32 → FSDP 主权重 fp32(~8G/卡) + fp32 梯度(~8G/卡)=~16G/卡，装不下。
+#   → 默认 bf16 主权重(减半到~4G) + 激活 offload 到 CPU。这才是能装下 4B 全参 SFT 的关键(优化器/SP 只是小头)。
+#   实测(standard_cot)：bf16 主权重 + activation_offload + 8-bit 优化器 → max_reserved~20.4G，GPU0(被别人占2.7G)刚好装下。
+#   精度：bf16 主权重 + 8-bit 优化器，SFT 几百步损失很小；大显存机想全精度：MODEL_DTYPE=fp32 ACT_OFFLOAD=false。
+MODEL_DTYPE=${MODEL_DTYPE:-bf16}
+ACT_OFFLOAD=${ACT_OFFLOAD:-true}
+mem_args=(engine.model_dtype="$MODEL_DTYPE" model.enable_activation_offload="$ACT_OFFLOAD")
+
 extra=()
 if [ "$USE_PEFT" = "1" ]; then
   extra+=(model.lora_rank=32 model.lora_alpha=16 model.target_modules=all-linear)
@@ -108,7 +116,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
   trainer.total_epochs=$EPOCHS \
-  "${accel[@]}" "${extra[@]}" ${opt_args[@]+"${opt_args[@]}"} "$@"
+  "${accel[@]}" "${extra[@]}" ${opt_args[@]+"${opt_args[@]}"} "${mem_args[@]}" "$@"
 
 # Liger 需先装：pip install liger-kernel（纯 Triton 轮子，不编译、不碰 glibc）。首跑先 TEST=1 冒烟，
 # 同时验证 flash-attn 算子在本机能跑；若冒烟报 flash-attn 相关错，用 USE_FLASH=0 回退再跑。
