@@ -10,9 +10,15 @@
 #       > "$LOGS/run/gen_standard_cot.log" 2>&1 &
 #   # reverse 同法：METHOD=reverse LIMIT=1000（每 seed 2 条长链≈2× 时长；产 3 条/题多目标）
 #   # question_aug 同法：METHOD=question_aug LIMIT=1000（无 gold 靠 self-consistency k≥3，≈4×/题最重，排最后）
-#   # 任务三 MVP（同种子换教师）：换 TEACHER + OUT，其余不变，事后 data_metrics 对比两份数据
-#   #   TEACHER=/data/liujiachen/models/Qwen3-14B OUT="$DATA/distill/t3_teacher14b" \
+#   # 任务三强度轴（同种子换教师）：换 TEACHER + OUT，其余不变，事后 data_metrics 对比
+#   #   TEACHER=/data/liujiachen/models/Qwen3-14B OUT="$DATA/distill/t3_14b" \
 #   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_14b.log" 2>&1 &
+#   # 任务三家族轴（Qwen2.5-Math-7B ctx=4096 → 必须 MAX_LEN/MAX_NEW，否则 vLLM 起不来）：
+#   #   TEACHER=/data/liujiachen/models/Qwen2.5-Math-7B-Instruct OUT="$DATA/distill/t3_math7b" \
+#   #     METHOD=standard_cot LIMIT=500 MAX_LEN=4096 MAX_NEW=3584 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_math7b.log" 2>&1 &
+#   # 任务三 prompt 轴（同 8B 换蒸馏风格，只 standard_cot 生效）：
+#   #   TEACHER=$MODELS/Qwen3-8B OUT="$DATA/distill/t3_prompt2" SYS_PROMPT="Always restate ... verify by an alternative method." \
+#   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_prompt2.log" 2>&1 &
 set -euo pipefail
 : "${PROJ:?先 source run/env.sh}"
 : "${TEACHER:?先 source run/env.sh}"
@@ -26,14 +32,20 @@ GPUS=${GPUS:-0,1}                         # 先看 nvidia-smi 再定用哪两张
 export CUDA_VISIBLE_DEVICES=$GPUS
 SEED=${SEED:-$SEED_DIR/train.parquet}    # MATH 种子（绝不用 olymmath——那是 held-out 评测集）
 OUT=${OUT:-$DATA/distill/$METHOD}
-# max_new/max_len 不传 → 用 generate_cot.py 默认(38912/40960)满预算，别为省时改小
+# max_new/max_len 默认不传 → 用 generate_cot.py 满预算默认(38912/40960)，别为省时改小。
+# 覆盖场景（任务三教师轴）：短上下文教师 Qwen2.5-Math-7B(ctx=4096) → MAX_LEN=4096 MAX_NEW=3584（否则 vLLM 起不来）；
+#   prompt 轴 → SYS_PROMPT="..." 给 standard_cot 换蒸馏风格。三个 env 都没设时 EXTRA 为空 = 与原行为一致。
+EXTRA=()
+[ -n "${MAX_LEN:-}" ]    && EXTRA+=(--max_len "$MAX_LEN")
+[ -n "${MAX_NEW:-}" ]    && EXTRA+=(--max_new "$MAX_NEW")
+[ -n "${SYS_PROMPT:-}" ] && EXTRA+=(--sys_prompt "$SYS_PROMPT")
 
 echo "[gen] method=$METHOD limit=$LIMIT tp=$TP gpu_mem=$GPU_MEM"
 echo "[gen] seed=$SEED  out=$OUT  teacher=$TEACHER"
 
 echo "[gen] === 冒烟 $SMOKE 条（验 tp=2 起得来 + 数据质量），写 ${OUT}_smoke ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
-  --out "${OUT}_smoke" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$SMOKE"
+  --out "${OUT}_smoke" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$SMOKE" ${EXTRA[@]+"${EXTRA[@]}"}
 
 # 冒烟门控：只看退出码不够——reverse/qaug 可能"跑通但 0 产出"（如 thinking 没关），必须按 n_kept 拦截，
 # 否则会放行几小时的正式 run 全程白跑。
@@ -50,6 +62,6 @@ PY
 
 echo "[gen] === 冒烟通过，起正式 $LIMIT 条 -> $OUT ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
-  --out "$OUT" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$LIMIT"
+  --out "$OUT" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$LIMIT" ${EXTRA[@]+"${EXTRA[@]}"}
 
 echo "[gen] === 完成。看 $OUT/gen_stats.json（良率/截断率/长度分位）==="

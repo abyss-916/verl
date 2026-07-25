@@ -68,15 +68,19 @@ class Teacher:
         )
         self.tok = self.llm.get_tokenizer()
 
-    def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True):
+    def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True, system=None):
         """users: list[str] → list[list[dict(text, finish, ntok)]]。
         finish=='length' 即撞 max_tokens 被截断——教师被截断＝拿坏数据去训练，必须能被统计到。
         enable_thinking：推理目标步(standard/R_f/R_b/造解)保持 True 留完整 CoT；辅助解析步(造逆问题/
-        一致性判定/造题)必须传 False——否则 Qwen3 默认先吐 <think>，短输出步永远等不到 True/False。"""
+        一致性判定/造题)必须传 False——否则 Qwen3 默认先吐 <think>，短输出步永远等不到 True/False。
+        system：任务三 prompt 轴给 standard_cot 换蒸馏风格的 system 指令；None=不加 system（默认，与原行为逐字节一致）。"""
         from vllm import SamplingParams
 
+        def _msgs(u):
+            head = [{"role": "system", "content": system}] if system else []
+            return head + [{"role": "user", "content": u}]
         prompts = [
-            self.tok.apply_chat_template([{"role": "user", "content": u}], tokenize=False,
+            self.tok.apply_chat_template(_msgs(u), tokenize=False,
                                          add_generation_prompt=True, enable_thinking=enable_thinking)
             for u in users
         ]
@@ -84,10 +88,10 @@ class Teacher:
         outs = self.llm.generate(prompts, sp)
         return [[{"text": c.text, "finish": c.finish_reason, "ntok": len(c.token_ids)} for c in o.outputs] for o in outs]
 
-    def chat(self, users, temperature, max_tokens, n=1, enable_thinking=True):
+    def chat(self, users, temperature, max_tokens, n=1, enable_thinking=True, system=None):
         """只要文本时的薄封装 → list[list[str]]。"""
         return [[c["text"] for c in cs]
-                for cs in self.chat_full(users, temperature, max_tokens, n, enable_thinking=enable_thinking)]
+                for cs in self.chat_full(users, temperature, max_tokens, n, enable_thinking=enable_thinking, system=system)]
 
 
 class APITeacher:
@@ -101,12 +105,13 @@ class APITeacher:
         self.model = model
         self.workers = workers
 
-    def _one(self, user, temperature, max_tokens):
+    def _one(self, user, temperature, max_tokens, system=None):
+        msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": user}]
         for attempt in range(4):
             try:
                 r = self.client.chat.completions.create(
                     model=self.model,
-                    messages=[{"role": "user", "content": user}],
+                    messages=msgs,
                     temperature=temperature,
                     max_tokens=max_tokens,
                 )
@@ -119,7 +124,7 @@ class APITeacher:
                     return ""
                 time.sleep(2 ** attempt)  # 退避重试
 
-    def chat(self, users, temperature, max_tokens, n=1, enable_thinking=True):
+    def chat(self, users, temperature, max_tokens, n=1, enable_thinking=True, system=None):
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         out = [[] for _ in users]
@@ -127,16 +132,16 @@ class APITeacher:
             fut2idx = {}
             for i, u in enumerate(users):
                 for _ in range(n):
-                    fut2idx[ex.submit(self._one, u, temperature, max_tokens)] = i
+                    fut2idx[ex.submit(self._one, u, temperature, max_tokens, system)] = i
             for f in as_completed(fut2idx):
                 out[fut2idx[f]].append(f.result())
         return out
 
-    def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True):
+    def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True, system=None):
         """与 Teacher.chat_full 同签名；API 端拿不到可靠的 finish_reason/token 数，故留空。
         enable_thinking 仅为签名对齐——API 端 thinking 由所选 model 决定，此处不透传。"""
         return [[{"text": s, "finish": None, "ntok": None} for s in cs]
-                for cs in self.chat(users, temperature, max_tokens, n)]
+                for cs in self.chat(users, temperature, max_tokens, n, system=system)]
 
 
 def read_seed(path):
@@ -191,7 +196,7 @@ def gen_stats(out, method, max_new, n_seed, n_kept, n_cand, n_trunc, ntoks):
 
 # ---------- 方法一：Standard CoT ----------
 def m_standard(t, items, a):
-    outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n)
+    outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n, system=(a.sys_prompt or None))
     rows, n_cand, n_trunc, ntoks = [], 0, 0, []
     for (q, gt), cands in zip(items, outs):
         keep = None
@@ -350,6 +355,9 @@ def main():
     ap.add_argument("--max_len", type=int, default=40960)
     ap.add_argument("--gpu_mem", type=float, default=0.85, help="vLLM 显存占比；与他人共卡时调低(如 0.7)")
     ap.add_argument("--max_new", type=int, default=38912)
+    # 任务三 prompt 轴：给 standard_cot 加 system 指令换蒸馏风格；空=默认(不加 system，与原行为逐字节一致)。
+    ap.add_argument("--sys_prompt", default="",
+                    help="任务三 prompt 轴：standard_cot 的 system 指令(改蒸馏风格)；空=默认无 system")
     ap.add_argument("--limit", type=int, default=0, help=">0 时只用前 N 条种子（调试/控预算）")
     # —— API teacher（任务三双轴用；仅 off-policy）——
     ap.add_argument("--teacher_type", choices=["vllm", "api"], default="vllm")
