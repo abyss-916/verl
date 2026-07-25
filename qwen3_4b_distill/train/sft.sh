@@ -17,6 +17,8 @@
 #   · 以上都不改数值结果，纯提速；单独关：USE_LIGER=false / USE_FUSED=false。
 #   ⚠️ ulysses SP（SP_SIZE>1）依赖变长路径，仅在 USE_FLASH=1 时可开。
 set -xeuo pipefail
+# 抗碎片：长序列训练易产生显存碎片，expandable_segments 减少碎片型 OOM（PYTORCH_ALLOC_CONF 为当前名，替代已弃用的 PYTORCH_CUDA_ALLOC_CONF）
+export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
 
 MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}
 DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/distill/standard_cot}
@@ -42,6 +44,17 @@ fi
 MAX_TOKENS=${MAX_TOKENS:-$MAXLEN}
 # 全局(优化器)batch；verl 缺省 256 → ~1000 种子(过滤后~700)一个 epoch 仅 ~3 步、3 epoch ~9 步易欠拟合。显式设 32(~22 步/epoch)多走几步；三法须一致以公平对比
 TBS=${TBS:-32}
+
+# 优化器：2×3090(24G/卡)装不下 4B 全参 fp32 AdamW —— 优化器状态(fp32 双动量)≈16G/卡，单步峰值~23.7G > 24G。
+#   ⚠️ offload 对此无效：verl 强制关原生 CPUOffload(和梯度累积一起会算错)，手动 offload 只在阶段间起作用，
+#      optimizer.step() 那一步 params+grads+状态仍须全在 GPU；SP_SIZE/MAX_TOKENS 只降激活、不降此峰值。
+#   → 默认走 torchao 8-bit 优化器：状态量化到~4G，单步峰值~12G，近乎无损、全参不变(需 pip install torchao)。
+#     大显存机想用 fp32 全精度：设 OPT8BIT=0。该 torchao 版本若无 AdamW8bit：改 OPT_NAME=Adam8bit/AdamW4bit（见报错列出可用名）。
+OPT8BIT=${OPT8BIT:-1}
+OPT_NAME=${OPT_NAME:-AdamW8bit}
+OPT_IMPL=${OPT_IMPL:-torchao.optim}
+opt_args=()
+[ "$OPT8BIT" = "1" ] && opt_args=(optim.optimizer="$OPT_NAME" optim.optimizer_impl="$OPT_IMPL")
 
 extra=()
 if [ "$USE_PEFT" = "1" ]; then
@@ -95,7 +108,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
   trainer.total_epochs=$EPOCHS \
-  "${accel[@]}" "${extra[@]}" "$@"
+  "${accel[@]}" "${extra[@]}" ${opt_args[@]+"${opt_args[@]}"} "$@"
 
 # Liger 需先装：pip install liger-kernel（纯 Triton 轮子，不编译、不碰 glibc）。首跑先 TEST=1 冒烟，
 # 同时验证 flash-attn 算子在本机能跑；若冒烟报 flash-attn 相关错，用 USE_FLASH=0 回退再跑。
