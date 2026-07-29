@@ -41,7 +41,9 @@ AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained(out)
 print("[merge] merged ->", out)
 PY
 
-  # 3) 自检：merged vs base 逐张量相对差（rel≥~1e-2=学到了；~1e-4=没训动，须查 LR/数据）
+  # 3) 自检：merged vs base 逐张量相对差（rel≳1e-3=学到了；~1e-4=没训动，须查 LR/数据）
+  #    阈值订正：rank-32 LoRA 低秩修正下单张量相对变化本在 ~1e-3 量级（Omni 三法实测 4–7e-3、
+  #    确有下降+权重移动），故判据为 1e-3 而非初设的 1e-2（后者对 LoRA 偏严、会误报"没训动"）。
   python - "$BASE" "$OUT" <<'PY'
 import sys, glob, os, statistics as S
 from safetensors import safe_open
@@ -59,7 +61,7 @@ for k in common:
     with safe_open(o[k], framework="pt") as st: B=st.get_tensor(k).float()
     rels.append(((A-B).norm()/(A.norm()+1e-9)).item())
 med, mx = S.median(rels), max(rels)
-flag = "OK 学到了" if med >= 1e-2 else "⚠ 疑似没训动(rel太小),查 LR/数据"
+flag = "OK 学到了" if med >= 1e-3 else "⚠ 疑似没训动(rel太小),查 LR/数据"
 print(f"[{os.path.basename(sys.argv[2])}] rel median/max(40张量)= {med:.2e} / {mx:.2e}  -> {flag}")
 PY
 
