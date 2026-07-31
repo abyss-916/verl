@@ -15,6 +15,24 @@ source "$(dirname "$0")/env.sh"
 say(){ echo "[$(date '+%F %T')] $*"; }
 G0=0; G1=1
 
+# data_metrics 单个(供两两并行) —— 每个实例占一张卡，绝不单卡串行
+dm(){  # $1=数据集名 $2=卡号
+  local m="$1" c="$2" D="$DATA/distill/$1/train.parquet"
+  [ -f "$D" ] || { say "  data_metrics 跳过 $m(缺 $D)"; return; }
+  CUDA_VISIBLE_DEVICES="$c" python "$PROJ/metrics/data_metrics.py" --data "$D" --model "$STUDENT_BASE" \
+    --out "$LOGS/metrics_$m.json" > "$LOGS/run/metrics_$m.log" 2>&1
+  [ -f "$LOGS/metrics_$m.json" ] && say "  ✔ data_metrics $m" || say "  ✗ data_metrics $m(查 metrics_$m.log)"
+}
+dm_pairs(){  # 参数=数据集名列表，两两分到 G0/G1 并行(两卡吃满)
+  local arr=("$@") i=0
+  while [ $i -lt ${#arr[@]} ]; do
+    dm "${arr[$i]}" "$G0" &
+    [ $((i+1)) -lt ${#arr[@]} ] && dm "${arr[$((i+1))]}" "$G1" &
+    wait
+    i=$((i+2))
+  done
+}
+
 say "===== 08 扩展批启动 ====="
 say "计划: [等 chain2 收尾腾卡] -> ①data_metrics(现有) -> ④MMLU-Pro -> ⑤code重测 -> ②shortest gen -> ③prompt-PS gen -> data_metrics(新) -> compare/attribution/slice_eval/manifest"
 
@@ -39,29 +57,26 @@ done
 say "阶段0: 两卡就绪(free=$f0/$f1 MiB)。"
 
 # ───────── 阶段1a：data_metrics 现有数据(3法 + 教师轴，IFD/PPL/distinct/长度) ─────────
-# 与文档一致：--model $STUDENT_BASE(同学生)。数据侧打分，单卡即可。
-say "阶段1a: data_metrics(现有 6 个数据集)"
-for m in omni_standard_cot omni_reverse omni_question_aug omni_t3_14b omni_t3_dsv4pro omni_t3_math7b; do
-  D="$DATA/distill/$m/train.parquet"
-  if [ ! -f "$D" ]; then say "  跳过 $m(缺 $D)"; continue; fi
-  CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/metrics/data_metrics.py" --data "$D" --model "$STUDENT_BASE" \
-    --out "$LOGS/metrics_$m.json" > "$LOGS/run/metrics_$m.log" 2>&1
-  [ -f "$LOGS/metrics_$m.json" ] && say "  ✔ $m" || say "  ✗ $m(查 $LOGS/run/metrics_$m.log)"
-done
+# 与文档一致：--model $STUDENT_BASE(同学生)。两两并行、两卡吃满(dm_pairs)。
+say "阶段1a: data_metrics(现有 6 个，两卡两两并行)"
+dm_pairs omni_standard_cot omni_reverse omni_question_aug omni_t3_14b omni_t3_dsv4pro omni_t3_math7b
 
 # ───────── 阶段1b：MMLU-Pro base eval(科学推理，任务一 2/5→3/5) ─────────
-# 与项目既定一致(05_extended.sh)：eval_mc --n 1 --limit 200；单卡跑(题小)。
-say "阶段1b: MMLU-Pro base eval"
+# 大样本 limit 2000(SE~1.1%，近全量功效、省时)；两卡分片(eval_mc --limit 先取总量再分片，各1000=合计2000)。
+say "阶段1b: MMLU-Pro base eval(limit 2000，两卡分片)"
 LG="$LOGS/run/eval_mmlu_pro_base.log"
-{
-  if [ -f "$DATA/mmlu_pro/test.parquet" ]; then
-    CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/eval/eval_mc.py" --model "$STUDENT_BASE" --data "$DATA/mmlu_pro/test.parquet" \
-      --n 1 --limit 200 --gpu_mem 0.8 --out "$LOGS/eval/mmlu_pro_base"
-  else
-    echo "[mmlu] test.parquet 未预下载,跳过 MMLU-Pro eval(数据须提前 prepare_mc 下好)"
-  fi
-} > "$LG" 2>&1
-[ -f "$LOGS/eval/mmlu_pro_base/summary.json" ] && say "  ✔ MMLU-Pro -> $LOGS/eval/mmlu_pro_base/summary.json" || say "  ✗ MMLU-Pro(查 $LG)"
+if [ ! -f "$DATA/mmlu_pro/test.parquet" ]; then
+  say "  ✗ MMLU-Pro 跳过:test.parquet 未预下载"
+else
+  # --limit 2000 先取全体前2000、再 num_shards=2 分片(各1000)=合计2000(已核 eval_mc 顺序)
+  for s in $G0 $G1; do
+    CUDA_VISIBLE_DEVICES=$s python "$PROJ/eval/eval_mc.py" --model "$STUDENT_BASE" --data "$DATA/mmlu_pro/test.parquet" \
+      --n 1 --limit 2000 --shard $s --num_shards 2 --gpu_mem 0.8 --out "$LOGS/eval/mmlu_pro_base_s$s" \
+      > "$LOGS/run/eval_mmlu_pro_s$s.log" 2>&1 &
+  done; wait
+  python "$PROJ/eval/merge_shards.py" --shards "$LOGS/eval/mmlu_pro_base_s$G0" "$LOGS/eval/mmlu_pro_base_s$G1" --out "$LOGS/eval/mmlu_pro_base" > "$LG" 2>&1
+  [ -f "$LOGS/eval/mmlu_pro_base/summary.json" ] && say "  ✔ MMLU-Pro -> summary.json" || say "  ✗ MMLU-Pro(查 $LG 及 eval_mmlu_pro_s{0,1}.log)"
+fi
 
 # ───────── 阶段1c：code 重测(max_new 38912，两卡分片) ─────────
 # 与已完成 code eval 一致(n4/全167/两卡分片/gpu_mem0.8)，仅 max_new 16384->38912(实测 prompt max=1343 零截断)。
@@ -98,15 +113,9 @@ TEACHER="$MODELS/Qwen3-8B" SEED="$DATA/omni_seed/train.parquet" OUT="$DATA/disti
   bash "$PROJ/run/gen_distill.sh" > "$PL" 2>&1
 [ -f "$DATA/distill/omni_prompt_ps/gen_stats.json" ] && say "  ✔ prompt-PS -> gen_stats.json" || say "  ✗ prompt-PS(查 $PL)"
 
-# ───────── 阶段2c：data_metrics 两个新数据集 ─────────
-say "阶段2c: data_metrics(新: shortest_cot / prompt_ps)"
-for m in omni_shortest_cot omni_prompt_ps; do
-  D="$DATA/distill/$m/train.parquet"
-  if [ ! -f "$D" ]; then say "  跳过 $m(缺 $D，可能上游 gen 失败)"; continue; fi
-  CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/metrics/data_metrics.py" --data "$D" --model "$STUDENT_BASE" \
-    --out "$LOGS/metrics_$m.json" > "$LOGS/run/metrics_$m.log" 2>&1
-  [ -f "$LOGS/metrics_$m.json" ] && say "  ✔ $m" || say "  ✗ $m"
-done
+# ───────── 阶段2c：data_metrics 两个新数据集(两卡并行) ─────────
+say "阶段2c: data_metrics(新: shortest_cot / prompt_ps，两卡并行)"
+dm_pairs omni_shortest_cot omni_prompt_ps
 
 # ───────── 阶段3：CPU 归因(compare / attribution / slice_eval / manifest) ─────────
 say "阶段3: CPU 归因分析"
