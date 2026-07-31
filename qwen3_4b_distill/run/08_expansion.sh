@@ -54,14 +54,11 @@ done
 say "阶段1b: MMLU-Pro base eval"
 LG="$LOGS/run/eval_mmlu_pro_base.log"
 {
-  if [ ! -f "$DATA/mmlu_pro/test.parquet" ]; then
-    timeout 1800 python "$PROJ/data_preprocess/prepare_mc.py" --hf "$MMLU_PRO_HF" --subset default --out "$DATA/mmlu_pro" --data_source mmlu_pro
-  fi
   if [ -f "$DATA/mmlu_pro/test.parquet" ]; then
     CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/eval/eval_mc.py" --model "$STUDENT_BASE" --data "$DATA/mmlu_pro/test.parquet" \
       --n 1 --limit 200 --gpu_mem 0.8 --out "$LOGS/eval/mmlu_pro_base"
   else
-    echo "[mmlu] test.parquet 缺失(prepare 失败/超时),跳过 eval_mc"
+    echo "[mmlu] test.parquet 未预下载,跳过 MMLU-Pro eval(数据须提前 prepare_mc 下好)"
   fi
 } > "$LG" 2>&1
 [ -f "$LOGS/eval/mmlu_pro_base/summary.json" ] && say "  ✔ MMLU-Pro -> $LOGS/eval/mmlu_pro_base/summary.json" || say "  ✗ MMLU-Pro(查 $LG)"
@@ -70,18 +67,17 @@ LG="$LOGS/run/eval_mmlu_pro_base.log"
 # 与已完成 code eval 一致(n4/全167/两卡分片/gpu_mem0.8)，仅 max_new 16384->38912(实测 prompt max=1343 零截断)。
 say "阶段1c: code base 重测 @max_new=38912"
 CG="$LOGS/run/eval_lcb_base_mn38912.log"
-{
-  if [ ! -f "$DATA/livecodebench/test.parquet" ]; then
-    timeout 1800 python "$PROJ/data_preprocess/prepare_code.py" --version "$CODE_VERSION" --out "$DATA/livecodebench"
-  fi
-} > "$CG" 2>&1
-for s in $G0 $G1; do
-  CUDA_VISIBLE_DEVICES=$s python "$PROJ/eval/eval_code.py" --model "$STUDENT_BASE" \
-    --data "$DATA/livecodebench/test.parquet" --n 4 --max_new 38912 --out "$LOGS/eval/lcb_base_mn38912_s$s" \
-    --shard $s --num_shards 2 --gpu_mem 0.8 > "$LOGS/run/eval_lcb_base_mn38912_s$s.log" 2>&1 &
-done; wait
-python "$PROJ/eval/merge_shards.py" --shards "$LOGS/eval/lcb_base_mn38912_s$G0" "$LOGS/eval/lcb_base_mn38912_s$G1" --out "$LOGS/eval/lcb_base_mn38912" >> "$CG" 2>&1
-[ -f "$LOGS/eval/lcb_base_mn38912/summary.json" ] && say "  ✔ code重测 -> $LOGS/eval/lcb_base_mn38912/summary.json" || say "  ✗ code重测(查 $CG)"
+if [ ! -f "$DATA/livecodebench/test.parquet" ]; then
+  say "  ✗ code重测跳过:$DATA/livecodebench/test.parquet 未预下载"
+else
+  for s in $G0 $G1; do
+    CUDA_VISIBLE_DEVICES=$s python "$PROJ/eval/eval_code.py" --model "$STUDENT_BASE" \
+      --data "$DATA/livecodebench/test.parquet" --n 4 --max_new 38912 --out "$LOGS/eval/lcb_base_mn38912_s$s" \
+      --shard $s --num_shards 2 --gpu_mem 0.8 > "$LOGS/run/eval_lcb_base_mn38912_s$s.log" 2>&1 &
+  done; wait
+  python "$PROJ/eval/merge_shards.py" --shards "$LOGS/eval/lcb_base_mn38912_s$G0" "$LOGS/eval/lcb_base_mn38912_s$G1" --out "$LOGS/eval/lcb_base_mn38912" > "$CG" 2>&1
+  [ -f "$LOGS/eval/lcb_base_mn38912/summary.json" ] && say "  ✔ code重测 -> $LOGS/eval/lcb_base_mn38912/summary.json" || say "  ✗ code重测(查 $CG)"
+fi
 
 # ───────── 阶段2a：shortest_cot 造数据(任务二第4方法) ─────────
 # 与三法一致：8B / omni_seed / LIMIT500 / TP2 / max_new默认38912。仅 N=4(方法必需，选最短正确)。走 gen_distill.sh(带冒烟门控)。
