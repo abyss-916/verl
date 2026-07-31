@@ -54,9 +54,15 @@ done
 say "阶段1b: MMLU-Pro base eval"
 LG="$LOGS/run/eval_mmlu_pro_base.log"
 {
-  python "$PROJ/data_preprocess/prepare_mc.py" --hf "$MMLU_PRO_HF" --subset default --out "$DATA/mmlu_pro" --data_source mmlu_pro
-  CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/eval/eval_mc.py" --model "$STUDENT_BASE" --data "$DATA/mmlu_pro/test.parquet" \
-    --n 1 --limit 200 --gpu_mem 0.8 --out "$LOGS/eval/mmlu_pro_base"
+  if [ ! -f "$DATA/mmlu_pro/test.parquet" ]; then
+    timeout 1800 python "$PROJ/data_preprocess/prepare_mc.py" --hf "$MMLU_PRO_HF" --subset default --out "$DATA/mmlu_pro" --data_source mmlu_pro
+  fi
+  if [ -f "$DATA/mmlu_pro/test.parquet" ]; then
+    CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/eval/eval_mc.py" --model "$STUDENT_BASE" --data "$DATA/mmlu_pro/test.parquet" \
+      --n 1 --limit 200 --gpu_mem 0.8 --out "$LOGS/eval/mmlu_pro_base"
+  else
+    echo "[mmlu] test.parquet 缺失(prepare 失败/超时),跳过 eval_mc"
+  fi
 } > "$LG" 2>&1
 [ -f "$LOGS/eval/mmlu_pro_base/summary.json" ] && say "  ✔ MMLU-Pro -> $LOGS/eval/mmlu_pro_base/summary.json" || say "  ✗ MMLU-Pro(查 $LG)"
 
@@ -66,7 +72,7 @@ say "阶段1c: code base 重测 @max_new=38912"
 CG="$LOGS/run/eval_lcb_base_mn38912.log"
 {
   if [ ! -f "$DATA/livecodebench/test.parquet" ]; then
-    python "$PROJ/data_preprocess/prepare_code.py" --version "$CODE_VERSION" --out "$DATA/livecodebench"
+    timeout 1800 python "$PROJ/data_preprocess/prepare_code.py" --version "$CODE_VERSION" --out "$DATA/livecodebench"
   fi
 } > "$CG" 2>&1
 for s in $G0 $G1; do
