@@ -1,5 +1,6 @@
 """teacher 造蒸馏数据 → verl SFT messages parquet。三法（见项目 doc/任务二_方法规格.md）：
   standard_cot  : teacher 直接对种子题生成 CoT，math-verify 过滤答对（rejection sampling）。
+  shortest_cot  : Concise/Short-CoT —— 每题采样 n 个候选，正确者里留 token 最少的（须 --n>1）。测"短而对更利小模型+抗截断"。
   reverse       : RevThink —— R_f + 逆向问题 Q_b(I_bq) + 逆向推理 R_b + 一致性过滤(I_con)，
                   产多目标样本 (Q→R_f, Q→Q_b, Q_b→R_b)（在 verl SFT 里编码为 3 条 messages 行）。
   question_aug  : Xwin-Math —— Prompt1 造全新题(FINAL CREATED QUESTION) → Prompt2 造解，
@@ -215,6 +216,30 @@ def m_standard(t, items, a):
     return rows
 
 
+def m_shortest(t, items, a):
+    """最短正确 CoT（Concise / Short-CoT 蒸馏）：每题采样 n 个候选，在"完整(未截断、含 \\boxed)且答对"的
+    候选里保留 token 最少的那个。测"短而对的 CoT 是否更利于小模型 + 天然抗截断"（依据 Less is More Tokens
+    arXiv:2509.05226、Concise Reasoning Big Gains arXiv:2505.19716 等）。与 m_standard 唯一差别：选【最短】
+    正确而非【第一个】正确；须 --n>1 才有选择空间（n=1 时退化为 standard）。原生带 <think>、天然 eval-clean。"""
+    outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n, system=(a.sys_prompt or None))
+    rows, n_cand, n_trunc, ntoks = [], 0, 0, []
+    for (q, gt), cands in zip(items, outs):
+        best = None  # (ntok, text)：当前最短的"完整且答对"候选
+        for c in cands:
+            n_cand += 1
+            ntoks.append(c["ntok"])
+            if c["finish"] == "length":  # 截断的必然不完整，弃（同 m_standard）
+                n_trunc += 1
+                continue
+            if gt is not None and "\\boxed" in c["text"] and verify(c["text"], gt):
+                if best is None or c["ntok"] < best[0]:
+                    best = (c["ntok"], c["text"])
+        if best is not None:
+            rows.append(msg_row(q, best[1]))
+    gen_stats(a.out, a.method, a.max_new, len(items), len(rows), n_cand, n_trunc, ntoks)
+    return rows
+
+
 # ---------- 方法二：Reverse Thinking (RevThink) ----------
 I_BQ = (
     "Your task is to generate an inverse question, based on the input question and its correct answer.\n"
@@ -341,7 +366,7 @@ def m_qaug(t, items, a):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--method", choices=["standard_cot", "reverse", "question_aug"], required=True)
+    ap.add_argument("--method", choices=["standard_cot", "shortest_cot", "reverse", "question_aug"], required=True)
     ap.add_argument("--seed", required=True, help="RL parquet（含 prompt / reward_model.ground_truth）")
     ap.add_argument("--teacher", default="/data/liujiachen/models/Qwen3-8B")
     ap.add_argument("--out", required=True)
@@ -378,7 +403,8 @@ def main():
         t = APITeacher(a.api_base, a.api_model, key, workers=a.workers)
     else:
         t = Teacher(a.teacher, a.tp, a.max_len, a.gpu_mem)
-    rows = {"standard_cot": m_standard, "reverse": m_reverse, "question_aug": m_qaug}[a.method](t, items, a)
+    rows = {"standard_cot": m_standard, "shortest_cot": m_shortest,
+            "reverse": m_reverse, "question_aug": m_qaug}[a.method](t, items, a)
     save(rows, a.out, len(items), a.method)
 
 

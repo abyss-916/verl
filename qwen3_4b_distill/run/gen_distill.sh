@@ -26,6 +26,7 @@ set -euo pipefail
 METHOD=${METHOD:-standard_cot}          # standard_cot / reverse / question_aug
 LIMIT=${LIMIT:-1000}                     # 正式用多少 seed（三法一致=受控对比，依据 s1K/LIMO；见 README/RUNBOOK）
 SMOKE=${SMOKE:-16}                       # 冒烟 seed 数
+N=${N:-1}                                # 每题采样候选数；shortest_cot 需 >1(如 4)才有"选最短"空间；标准三法/教师轴用 1
 GPU_MEM=${GPU_MEM:-0.9}                   # 按 nvidia-smi 定：两卡空 0.9；共卡调低
 TP=${TP:-2}                              # 8B 教师满预算(40960 KV)单卡放不下 → 必须 tp=2
 GPUS=${GPUS:-0,1}                         # 先看 nvidia-smi 再定用哪两张卡（共享机，避免撞别人占用的卡）
@@ -40,12 +41,12 @@ EXTRA=()
 [ -n "${MAX_NEW:-}" ]    && EXTRA+=(--max_new "$MAX_NEW")
 [ -n "${SYS_PROMPT:-}" ] && EXTRA+=(--sys_prompt "$SYS_PROMPT")
 
-echo "[gen] method=$METHOD limit=$LIMIT tp=$TP gpu_mem=$GPU_MEM"
+echo "[gen] method=$METHOD limit=$LIMIT n=$N tp=$TP gpu_mem=$GPU_MEM"
 echo "[gen] seed=$SEED  out=$OUT  teacher=$TEACHER"
 
 echo "[gen] === 冒烟 $SMOKE 条（验 tp=2 起得来 + 数据质量），写 ${OUT}_smoke ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
-  --out "${OUT}_smoke" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$SMOKE" ${EXTRA[@]+"${EXTRA[@]}"}
+  --out "${OUT}_smoke" --tp "$TP" --gpu_mem "$GPU_MEM" --n "$N" --limit "$SMOKE" ${EXTRA[@]+"${EXTRA[@]}"}
 
 # 冒烟门控：只看退出码不够——reverse/qaug 可能"跑通但 0 产出"（如 thinking 没关），必须按 n_kept 拦截，
 # 否则会放行几小时的正式 run 全程白跑。
@@ -62,6 +63,6 @@ PY
 
 echo "[gen] === 冒烟通过，起正式 $LIMIT 条 -> $OUT ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
-  --out "$OUT" --tp "$TP" --gpu_mem "$GPU_MEM" --limit "$LIMIT" ${EXTRA[@]+"${EXTRA[@]}"}
+  --out "$OUT" --tp "$TP" --gpu_mem "$GPU_MEM" --n "$N" --limit "$LIMIT" ${EXTRA[@]+"${EXTRA[@]}"}
 
 echo "[gen] === 完成。看 $OUT/gen_stats.json（良率/截断率/长度分位）==="
