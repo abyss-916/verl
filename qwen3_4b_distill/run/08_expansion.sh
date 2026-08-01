@@ -107,7 +107,7 @@ if [ -f "$DATA/distill/omni_shortest_cot/gen_stats.json" ]; then
   say "  ↷ shortest_cot 已完成，跳过"                   # 幂等：重跑不重造
 else
   TEACHER="$MODELS/Qwen3-8B" SEED="$DATA/omni_seed/train.parquet" OUT="$DATA/distill/omni_shortest_cot" \
-    METHOD=shortest_cot N=3 LIMIT=500 TP=2 GPU_MEM=0.8 \
+    METHOD=shortest_cot N=3 LIMIT=500 TP=2 GPU_MEM=0.75 \
     bash "$PROJ/run/gen_distill.sh" > "$SL" 2>&1
   [ -f "$DATA/distill/omni_shortest_cot/gen_stats.json" ] && say "  ✔ shortest_cot -> gen_stats.json" || say "  ✗ shortest_cot(查 $SL)"
 fi
@@ -121,7 +121,7 @@ if [ -f "$DATA/distill/omni_prompt_ps/gen_stats.json" ]; then
   say "  ↷ prompt-PS 已完成，跳过"                      # 幂等：重跑不重造
 else
   TEACHER="$MODELS/Qwen3-8B" SEED="$DATA/omni_seed/train.parquet" OUT="$DATA/distill/omni_prompt_ps" \
-    METHOD=standard_cot N=1 LIMIT=500 TP=2 GPU_MEM=0.8 SYS_PROMPT="$PS_PROMPT" \
+    METHOD=standard_cot N=1 LIMIT=500 TP=2 GPU_MEM=0.75 SYS_PROMPT="$PS_PROMPT" \
     bash "$PROJ/run/gen_distill.sh" > "$PL" 2>&1
   [ -f "$DATA/distill/omni_prompt_ps/gen_stats.json" ] && say "  ✔ prompt-PS -> gen_stats.json" || say "  ✗ prompt-PS(查 $PL)"
 fi
