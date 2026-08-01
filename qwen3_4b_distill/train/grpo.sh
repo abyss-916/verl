@@ -13,6 +13,7 @@ TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/math_seed}   # GRPO 训练 prom
 VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}        # 仅监控 held-out 泛化，不参与训练/模型选择
 EXP=${EXP:-grpo_math}
 REWARD=${REWARD:-/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py}
+RM=${RM:-naive}                                   # reward_manager：math/mc=naive；code=prime（并行跑单测判分）
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
 
@@ -39,7 +40,7 @@ python3 -m verl.trainer.main_ppo \
   data.truncation=error \
   reward.custom_reward_function.path=$REWARD \
   reward.custom_reward_function.name=compute_score \
-  reward.reward_manager.name=naive \
+  reward.reward_manager.name=$RM \
   actor_rollout_ref.model.path=$MODEL_PATH \
   actor_rollout_ref.model.use_remove_padding=True \
   actor_rollout_ref.model.use_liger=True \

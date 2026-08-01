@@ -5,8 +5,10 @@
                   产多目标样本 (Q→R_f, Q→Q_b, Q_b→R_b)（在 verl SFT 里编码为 3 条 messages 行）。
   question_aug  : Xwin-Math —— Prompt1 造全新题(FINAL CREATED QUESTION) → Prompt2 造解，
                   无 gold 用 self-consistency 多数投票过滤答案。
+  code_cot      : Standard-CoT for LiveCodeBench —— teacher 造代码，prime_code 跑测试用例过滤（种子=prepare_code 的 parquet）。
+  mc_cot        : Standard-CoT for 选择题(MMLU-Pro 等) —— 抽 \\boxed{字母} 与 gold 比对过滤（种子=prepare_mc 的 parquet）。
 
-公平对比铁律：三法共用同一 teacher / 同一 chat 模板 / 同一采样预算。
+公平对比铁律：各法共用同一 teacher / 同一 chat 模板 / 同一采样预算。判定器按能力切换（math-verify / prime_code / 字母匹配），与 eval 同源。
 用法（服务器）：
   # ⚠️ --seed 只用 MATH 训练种子，绝不用 olymmath（那是 held-out 评测集，拿来蒸馏=泄漏）
   python generate_cot.py --method reverse \
@@ -51,6 +53,43 @@ def verify(pred_text, gold):
 
     try:
         return float(compute_score(pred_text, str(gold))) >= 1.0
+    except Exception:
+        return False
+
+
+# ---- code / mc 判定：复用与 eval 完全相同的判分器（reward/*），保证"gen 过滤"与"eval 判分"同一套逻辑 ----
+def extract_code(text):
+    """取最后一个 ```python ... ``` 代码块；无围栏则退回整段（与 eval/eval_code.py 一致）。"""
+    m = re.findall(r"```(?:python)?\s*(.*?)```", text, re.S)
+    return m[-1].strip() if m else text.strip()
+
+
+def _reward_on_path():
+    import sys
+    d = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")   # distill/.. = qwen3_4b_distill/
+    if d not in sys.path:
+        sys.path.insert(0, d)
+
+
+def verify_code(pred_text, gt):
+    """LiveCodeBench：抽代码 → prime_code 本地跑测试用例（复用 reward/code_reward.py），全部通过=True。
+    ⚠️ 会本地执行模型生成的代码（prime_code 自带超时）；共享服务器大规模造数据前建议起 sandbox。"""
+    _reward_on_path()
+    from reward.code_reward import compute_score
+
+    try:
+        return float(compute_score("livecodebench", extract_code(pred_text), gt)) >= 1.0
+    except Exception:
+        return False
+
+
+def verify_mc(pred_text, gt):
+    """选择题：抽答案字母与 gold 比对（复用 reward/mc_reward.py）。"""
+    _reward_on_path()
+    from reward.mc_reward import compute_score
+
+    try:
+        return float(compute_score("mmlu_pro", pred_text, gt)) >= 1.0
     except Exception:
         return False
 
@@ -364,9 +403,55 @@ def m_qaug(t, items, a):
     return rows
 
 
+# ---------- 跨能力 Standard-CoT：code / 选择题（judge 换成代码执行 / 字母匹配，结构同 m_standard）----------
+def m_code(t, items, a):
+    """Standard-CoT for LiveCodeBench：teacher 生成"思路 + ```python 代码"，prime_code 跑测试用例过滤，
+    留第一个"未截断且全部测试通过"的（与 m_standard 同结构，仅判定器换成代码执行）。
+    种子须为 prepare_code.py 的 parquet（reward_model.ground_truth = 测试用例 json）。"""
+    outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n, system=(a.sys_prompt or None))
+    rows, n_cand, n_trunc, ntoks = [], 0, 0, []
+    for (q, gt), cands in zip(items, outs):
+        keep = None
+        for c in cands:
+            n_cand += 1
+            ntoks.append(c["ntok"])
+            if c["finish"] == "length":  # 截断的代码必不完整，弃
+                n_trunc += 1
+                continue
+            if gt is not None and "```" in c["text"] and verify_code(c["text"], gt):
+                keep = c["text"]
+                break
+        if keep is not None:
+            rows.append(msg_row(q, keep))
+    gen_stats(a.out, a.method, a.max_new, len(items), len(rows), n_cand, n_trunc, ntoks)
+    return rows
+
+
+def m_mc(t, items, a):
+    """Standard-CoT for 选择题（MMLU-Pro 等）：teacher 生成"推理 + \\boxed{字母}"，抽字母与 gold 比对过滤，
+    留第一个"未截断且答对"的（与 m_standard 同结构，判定器换成字母匹配）。种子须为 prepare_mc.py 的 parquet。"""
+    outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n, system=(a.sys_prompt or None))
+    rows, n_cand, n_trunc, ntoks = [], 0, 0, []
+    for (q, gt), cands in zip(items, outs):
+        keep = None
+        for c in cands:
+            n_cand += 1
+            ntoks.append(c["ntok"])
+            if c["finish"] == "length":
+                n_trunc += 1
+                continue
+            if gt is not None and verify_mc(c["text"], gt):
+                keep = c["text"]
+                break
+        if keep is not None:
+            rows.append(msg_row(q, keep))
+    gen_stats(a.out, a.method, a.max_new, len(items), len(rows), n_cand, n_trunc, ntoks)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--method", choices=["standard_cot", "shortest_cot", "reverse", "question_aug"], required=True)
+    ap.add_argument("--method", choices=["standard_cot", "shortest_cot", "reverse", "question_aug", "code_cot", "mc_cot"], required=True)
     ap.add_argument("--seed", required=True, help="RL parquet（含 prompt / reward_model.ground_truth）")
     ap.add_argument("--teacher", default="/data/liujiachen/models/Qwen3-8B")
     ap.add_argument("--out", required=True)
@@ -404,7 +489,8 @@ def main():
     else:
         t = Teacher(a.teacher, a.tp, a.max_len, a.gpu_mem)
     rows = {"standard_cot": m_standard, "shortest_cot": m_shortest,
-            "reverse": m_reverse, "question_aug": m_qaug}[a.method](t, items, a)
+            "reverse": m_reverse, "question_aug": m_qaug,
+            "code_cot": m_code, "mc_cot": m_mc}[a.method](t, items, a)
     save(rows, a.out, len(items), a.method)
 
 
