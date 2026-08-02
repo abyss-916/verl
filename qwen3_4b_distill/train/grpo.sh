@@ -1,32 +1,33 @@
 #!/usr/bin/env bash
-# GRPO 后训练 | Qwen3-4B | 2×3090(无NVLink) | 改编自 verl/examples/grpo_trainer/run_qwen3_4b_fsdp.sh
-# 用法（服务器，tmux/nohup 后台）：
-#   EXP=grpo_olymmath MODEL_PATH=/data/liujiachen/checkpoints/sft_standard_cot \
-#     DATA_DIR=/data/liujiachen/datasets/olymmath bash train/grpo.sh
-#   TEST=1 ... bash train/grpo.sh      # 先跑通 1~2 step 不 OOM 再放大
+# GRPO(LoRA) 后训练 | Qwen3-4B | 2×3090(无 NVLink) | 改编自 verl/examples/tuning/lora/run_qwen3_8b_fsdp.sh
+# 与 SFT 一致走 LoRA 策略：可训参/梯度/优化器极小 → 免全参 offload、更快，且 RESP 可顶大
+#   （避免难题 rollout 被截断而丢 reward 信号——这是 Omni d4–5 上出效果的关键）。
+# 用法：
+#   EXP=... MODEL_PATH=<sft_merged> TRAIN_DIR=<omni_seed> VAL_DIR=<olymmath> RESP=16384 EPOCHS=5 bash train/grpo.sh
+#   TEST=1 ... bash train/grpo.sh    # 先 1~2 step 验不崩 + 第一步验显存，过了再放大
 set -xeuo pipefail
 
-MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}   # 建议用 SFT 后 ckpt（如 $CKPT/sft_standard_cot）
-# ⚠️ 训练 prompt 必须用 MATH 种子(math_seed)，绝不能用 olymmath——那是 held-out 评测集，
-#    拿它训 GRPO = 在评测题上训 = 数据泄漏，最终分数作废。held-out 只放 VAL_DIR 做监控(不更新权重)。
-TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/math_seed}   # GRPO 训练 prompt = MATH(含 ground_truth)
-VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}        # 仅监控 held-out 泛化，不参与训练/模型选择
-EXP=${EXP:-grpo_math}
+MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}   # 建议 = SFT 后 merged ckpt（LoRA GRPO 在其上再加一层 LoRA）
+# ⚠️ 训练 prompt 用难度匹配的 Omni d4–5(omni_seed)——4B 有头部空间(探针 68.7%)才有对/错方差=reward 信号；
+#    MATH 种子太简单已饱和(§5.3.1)、GRPO 也学不到。held-out(olymmath) 只放 VAL_DIR 监控，绝不进训练=防泄漏。
+TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/omni_seed}
+VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}
+EXP=${EXP:-grpo_lora}
 REWARD=${REWARD:-/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py}
-RM=${RM:-naive}                                   # reward_manager：math/mc=naive；code=prime（并行跑单测判分）
+RM=${RM:-naive}                                   # reward_manager：math/mc=naive；code=prime
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
+LORA_RANK=${LORA_RANK:-32}; LORA_ALPHA=${LORA_ALPHA:-32}   # 与 SFT 一致（rank32/alpha32/all-linear）
+GM=${GM:-0.6}                                     # vLLM 显存占比：LoRA 免全参 optimizer 常驻，可给 vLLM 多点(rollout 更快)
 
 if [ "${TEST:-0}" = "1" ]; then
-  TBS=8; MINI=8; RESP=256; N=4; EPOCHS=1
+  TBS=8; MINI=8; RESP=256; N=4; EPOCHS=1; LR=${LR:-3e-6}
 else
-  # RESP(max_response_length)：数学题要产出完整 CoT 到 \boxed 才有 reward。教师 MATH 解实测
-  #   p50≈2.5K / p97≈8K token → 8192 覆盖大多数、给足学习信号；1024 会让多数题截断、reward 恒 0 学不到。
-  #   以课题质量为先，默认 8192，不为省显存砍。显存实在装不下时退 4096(覆盖~p85)，别退回 1024。
-  TBS=${TBS:-32}; MINI=${MINI:-16}; RESP=${RESP:-8192}; N=${N:-5}; EPOCHS=${EPOCHS:-5}
+  # RESP：LoRA 免全参优化器显存 → 可顶到覆盖 Omni d4–5 学生解(~10–20K)、避免截断丢 reward。
+  #   默认 16384(覆盖大多数)；正式跑第一步验显存：够则保留、OOM 就退 12288/8192；想更高(32768)可加激活 offload。
+  TBS=${TBS:-32}; MINI=${MINI:-16}; RESP=${RESP:-16384}; N=${N:-5}; EPOCHS=${EPOCHS:-5}; LR=${LR:-3e-6}
 fi
-# 单条序列最长 = prompt(1024) + response(RESP)；训练 micro-batch 与 rollout KV 都必须能装下它
-TOTLEN=$(( 1024 + RESP ))
+TOTLEN=$(( 1024 + RESP ))   # 单序列最长 = prompt(1024)+response(RESP)；micro-batch token 预算须 ≥ 它
 
 python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
@@ -42,47 +43,54 @@ python3 -m verl.trainer.main_ppo \
   reward.custom_reward_function.name=compute_score \
   reward.reward_manager.name=$RM \
   actor_rollout_ref.model.path=$MODEL_PATH \
+  actor_rollout_ref.model.lora_rank=$LORA_RANK \
+  actor_rollout_ref.model.lora_alpha=$LORA_ALPHA \
+  actor_rollout_ref.model.target_modules=all-linear \
   actor_rollout_ref.model.use_remove_padding=True \
-  actor_rollout_ref.model.use_liger=True \
-  actor_rollout_ref.model.use_fused_kernels=True \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
-  actor_rollout_ref.actor.optim.lr=1e-6 \
+  actor_rollout_ref.actor.optim.lr=$LR \
   actor_rollout_ref.actor.ppo_mini_batch_size=$MINI \
   actor_rollout_ref.actor.use_dynamic_bsz=True \
   actor_rollout_ref.actor.ppo_max_token_len_per_gpu=$TOTLEN \
-  actor_rollout_ref.actor.use_kl_loss=False \
+  actor_rollout_ref.actor.use_kl_loss=True \
+  actor_rollout_ref.actor.kl_loss_coef=0.001 \
+  actor_rollout_ref.actor.kl_loss_type=low_var_kl \
   actor_rollout_ref.actor.entropy_coeff=0 \
-  actor_rollout_ref.actor.fsdp_config.param_offload=True \
-  actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+  actor_rollout_ref.actor.fsdp_config.param_offload=False \
+  actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
-  actor_rollout_ref.rollout.gpu_memory_utilization=0.5 \
+  actor_rollout_ref.rollout.gpu_memory_utilization=$GM \
   actor_rollout_ref.rollout.max_model_len=$TOTLEN \
   actor_rollout_ref.rollout.n=$N \
+  actor_rollout_ref.rollout.load_format=safetensors \
+  actor_rollout_ref.rollout.layered_summon=True \
   actor_rollout_ref.rollout.free_cache_engine=True \
   actor_rollout_ref.rollout.enable_chunked_prefill=True \
+  actor_rollout_ref.rollout.log_prob_use_dynamic_bsz=True \
+  actor_rollout_ref.rollout.log_prob_max_token_len_per_gpu=$TOTLEN \
+  actor_rollout_ref.ref.log_prob_use_dynamic_bsz=True \
+  actor_rollout_ref.ref.log_prob_max_token_len_per_gpu=$TOTLEN \
+  actor_rollout_ref.ref.fsdp_config.param_offload=True \
   actor_rollout_ref.actor.checkpoint.save_contents='[model,optimizer,extra,hf_model]' \
   trainer.use_v1=False \
   trainer.default_local_dir=$SAVE \
   trainer.n_gpus_per_node=2 \
   trainer.nnodes=1 \
   trainer.total_epochs=$EPOCHS \
+  trainer.val_before_train=False \
   trainer.save_freq=20 \
-  trainer.test_freq=10 \
+  trainer.test_freq=-1 \
   trainer.project_name=qwen3-4b-grpo \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
   "$@"
 
-# ── 2×3090 关键点 ──
-# use_kl_loss=False + use_kl_in_reward=False → 去 ref model，省一份 4B 权重（GRPO 仍成立）。
-# param/optimizer offload=True → 必须。 rollout TP=1（DP=2）+ gpu_mem_util=0.5 + free_cache_engine=True。
-#
-# ── code / LiveCodeBench ──
-# 用我们的 code_reward.py（复用 verl prime_code 本地执行单测）：
-#   reward.custom_reward_function.path=/data/liujiachen/verl/qwen3_4b_distill/reward/code_reward.py \
-#   reward.custom_reward_function.name=compute_score \
-#   reward.reward_manager.name=prime
-# 想用云沙箱则设环境变量 SANDBOX_FUSION_URL，或直接：
-#   reward.sandbox_fusion.url=http://127.0.0.1:PORT/run_code   reward.sandbox_fusion.max_concurrent=64
-# 注意 code 测试用例格式：prepare_code 存 LCB 原始 input/output 串，prime_code 按 fn_name 自解析（已打通，合成解验证 1.0/0）。
+# ── LoRA GRPO 关键点(与全参的区别) ──
+# LoRA(rank32/alpha32/all-linear) → 可训参/梯度/优化器极小：
+#   · fsdp param_offload=False / optimizer_offload=False（LoRA 不需要全参那套 offload，更快）
+#   · rollout 必须 load_format=safetensors + layered_summon=True（vLLM 加载 base + 逐层 summon LoRA 权重同步）
+#   · use_kl_loss=True(coef 0.001, low_var_kl)：ref=冻结的 base(LoRA 关)，不额外占显存，稳训练（DeepSeekMath 式）
+#   · RESP 可顶大(默认 16384)，覆盖 Omni d4–5 学生解、避免截断丢 reward；第一步验显存,OOM 就 RESP=12288/8192
+#   · test_freq=-1 / val_before_train=False：不在训练中途跑昂贵的 held-out eval(最终 eval 由 03_grpo.sh 单独做)
+# ── code / mc ──（同前）reward 换 code_reward.py(RM=prime) / mc_reward.py(RM=naive)。
