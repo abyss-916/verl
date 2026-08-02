@@ -74,7 +74,8 @@ ds_args=()
 
 extra=()
 if [ "$USE_PEFT" = "1" ]; then
-  extra+=(model.lora_rank=32 model.lora_alpha=16 model.target_modules=all-linear)
+  # alpha 默认 32（=§6.3 订正后、三法/教师轴实际所用值；LR=1e-5 时期曾用 16，已弃）；可 LORA_ALPHA= 覆盖
+  extra+=(model.lora_rank=${LORA_RANK:-32} model.lora_alpha=${LORA_ALPHA:-32} model.target_modules=all-linear)
 fi
 
 # 加速开关：flash-attn 变长打包(默认) vs sdpa+padding 回退；Triton 融合算子两档都开
@@ -115,6 +116,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   data.max_length=$MAXLEN \
   data.truncation=$TRUNC \
   optim.lr=$LR \
+  optim.lr_warmup_steps_ratio=${WARMUP:-0.05} \
   engine=fsdp \
   engine.ulysses_sequence_parallel_size=$SP_SIZE \
   model.path=$MODEL_PATH \
@@ -124,6 +126,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$NPROC \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
   trainer.total_epochs=$EPOCHS \
+  trainer.test_freq=${TEST_FREQ:-10} \
   "${accel[@]}" "${extra[@]}" ${opt_args[@]+"${opt_args[@]}"} "${mem_args[@]}" ${ds_args[@]+"${ds_args[@]}"} "$@"
 
 # Liger 需先装：pip install liger-kernel（纯 Triton 轮子，不编译、不碰 glibc）。首跑先 TEST=1 冒烟，
