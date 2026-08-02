@@ -4,7 +4,8 @@
 #   ② SFT + eval  omni_prompt_ps       （prompt 轴 Plan-and-Solve 的下游）
 #   ③ GRPO(from sft_omni_standard_cot) + eval  （on-policy RL PoC，测 H2 后半"on-policy 挽回"）
 #
-# 配方与三法 SFT 逐字节一致：USE_PEFT=1 LR=2e-4 EPOCHS=5 MAXLEN=40960（alpha/rank/NPROC/TBS 由 sft.sh 默认）。
+# 配方与三法 SFT 逐字节一致：USE_PEFT=1 LR=2e-4 EPOCHS=5 MAXLEN=40960 + hydra 覆盖 lora_alpha=32 / warmup=0.05 / test_freq=10
+#   （三法/教师轴 SFT 正是这么跑的——sft.sh 内 alpha=16 被末尾 hydra 覆盖为 32；rank32 / NPROC2 / TBS32 由 sft.sh）。
 # GRPO：MATH 种子作 RL prompt（奖励密、解短适配 RESP=8192；Omni d4–5 解长~12K 会大量撞 8192 截断→奖励稀疏），
 #       起点 = sft_omni_standard_cot 的 merged 全权重，EPOCHS=1 短 PoC，eval n=4（与 SFT 对照一致）。
 #
@@ -22,7 +23,8 @@ for M in omni_shortest_cot omni_prompt_ps; do
   [ -f "$DATA/distill/$M/train.parquet" ] || { say "阶段1: ✗ SFT $M 跳过（缺 $DATA/distill/$M/train.parquet）"; continue; }
   say "阶段1: SFT $M （USE_PEFT=1 LR=2e-4 EPOCHS=5 MAXLEN=40960，两卡）"
   USE_PEFT=1 LR=2e-4 EPOCHS=5 MAXLEN=40960 EXP="sft_$M" SAVE="$CKPT/sft_$M" \
-    DATA_DIR="$DATA/distill/$M" bash "$PROJ/train/sft.sh" > "$LOGS/run/sft_$M.log" 2>&1
+    DATA_DIR="$DATA/distill/$M" bash "$PROJ/train/sft.sh" \
+    model.lora_alpha=32 optim.lr_warmup_steps_ratio=0.05 trainer.test_freq=10 > "$LOGS/run/sft_$M.log" 2>&1
   ls -d "$CKPT/sft_$M"/global_step_* >/dev/null 2>&1 && say "  ✔ SFT $M" || say "  ✗ SFT $M（查 $LOGS/run/sft_$M.log）"
 done
 
