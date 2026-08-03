@@ -27,6 +27,10 @@ export TMPDIR=${TMPDIR:-/data/liujiachen/tmp}                        # ray/临�
 export RAY_TMPDIR=${RAY_TMPDIR:-/data/liujiachen/tmp/ray}
 export WANDB_DIR=${WANDB_DIR:-$LOGS/wandb}
 export WANDB_MODE=${WANDB_MODE:-offline}   # 默认离线（免登录、不卡）；想上传设 WANDB_MODE=online 并先 wandb login
+# ── verl GRPO（2×3090 无 NVLink）必需的运行时修复：不设这三个会在 worker 里段错 / NCCL 崩，排查全程见复现记录 ──
+export JE_ARROW_MALLOC_CONF=${JE_ARROW_MALLOC_CONF:-background_thread:false}  # pyarrow 内嵌 jemalloc 后台线程 fork 时 SIGSEGV → 关后台线程
+export NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE:-1}     # 无 NVLink：两卡 peer access 不支持 → 禁 P2P、退回 SHM
+export NCCL_CUMEM_ENABLE=${NCCL_CUMEM_ENABLE:-0}   # NCCL cuMem 在此拓扑仍要 peer access → 关掉,配合上一条才不崩
 mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$PIP_CACHE_DIR" "$TORCH_EXTENSIONS_DIR" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
 
 export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B}   # 唯一 student=Qwen3-4B(instruct,带 thinking+chat 模板);不用 Base 版

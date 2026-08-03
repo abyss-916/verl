@@ -18,7 +18,7 @@ RM=${RM:-naive}                                   # reward_manager：math/mc=nai
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
 LORA_RANK=${LORA_RANK:-32}; LORA_ALPHA=${LORA_ALPHA:-32}   # 与 SFT 一致（rank32/alpha32/all-linear）
-GM=${GM:-0.6}                                     # vLLM 显存占比：LoRA 免全参 optimizer 常驻，可给 vLLM 多点(rollout 更快)
+GM=${GM:-0.5}                                     # vLLM 显存占比(colocate)：actor 已 param_offload + vLLM enforce_eager 省 CUDA graph → 0.5 实测可过 update_weights 尖峰；正式跑第一步验、可微调(0.45~0.55)
 # TP=2(张量并行,默认)：本机 GPU0 被占 2.7G + RESP=16384 KV 很吃显存 → 半权重(4G/卡)腾出 KV、把两卡喂满、且不 OOM。
 #   代价是无 NVLink 下逐层 PCIe all-reduce。若头几步吞吐明显偏慢，可 TP=1 换回数据并行对比(各卡独立生成、无跨卡通信，但显存更紧)。
 TP=${TP:-2}
@@ -59,11 +59,12 @@ python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.actor.kl_loss_coef=0.001 \
   actor_rollout_ref.actor.kl_loss_type=low_var_kl \
   actor_rollout_ref.actor.entropy_coeff=0 \
-  actor_rollout_ref.actor.fsdp_config.param_offload=False \
-  actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
+  actor_rollout_ref.actor.fsdp_config.param_offload=True \
+  actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
   actor_rollout_ref.rollout.name=vllm \
   actor_rollout_ref.rollout.tensor_model_parallel_size=$TP \
   actor_rollout_ref.rollout.gpu_memory_utilization=$GM \
+  actor_rollout_ref.rollout.enforce_eager=True \
   actor_rollout_ref.rollout.max_model_len=$TOTLEN \
   actor_rollout_ref.rollout.n=$N \
   actor_rollout_ref.rollout.load_format=safetensors \
