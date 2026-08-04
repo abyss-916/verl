@@ -20,7 +20,7 @@ N=${N:-4}
 GM=${GM:-0.8}          # 与他人共卡：0.8 实测稳（0.85 曾在 sampler warmup OOM）
 G0=${G0:-0}            # 分片0用的物理卡
 G1=${G1:-1}            # 分片1用的物理卡
-PREFIX=${PREFIX:-sft_}   # 模型目录前缀：SFT=sft_（默认）；GRPO 传 PREFIX= 空 + METHODS=grpo_<法>
+PREFIX=${PREFIX-sft_}    # 模型目录前缀（去冒号:空串也生效）：SFT=sft_（默认）；GRPO 传 PREFIX=grpo_ + METHODS=omni_<法>（或 PREFIX= 空 + METHODS=grpo_<法>）
 METHODS=${METHODS:-"standard_cot reverse question_aug"}
 
 echo "==== eval 开始 | n=$N gm=$GM 卡=($G0,$G1) 前缀=[$PREFIX] 方法=[$METHODS] data=$DATA_PARQUET ===="
