@@ -20,14 +20,15 @@ N=${N:-4}
 GM=${GM:-0.8}          # 与他人共卡：0.8 实测稳（0.85 曾在 sampler warmup OOM）
 G0=${G0:-0}            # 分片0用的物理卡
 G1=${G1:-1}            # 分片1用的物理卡
+PREFIX=${PREFIX:-sft_}   # 模型目录前缀：SFT=sft_（默认）；GRPO 传 PREFIX= 空 + METHODS=grpo_<法>
 METHODS=${METHODS:-"standard_cot reverse question_aug"}
 
-echo "==== 三法 eval 开始 | n=$N gm=$GM 卡=($G0,$G1) 方法=[$METHODS] data=$DATA_PARQUET ===="
+echo "==== eval 开始 | n=$N gm=$GM 卡=($G0,$G1) 前缀=[$PREFIX] 方法=[$METHODS] data=$DATA_PARQUET ===="
 for M in $METHODS; do
-  MODEL=$CKPT/sft_${M}_merged
-  S0=$LOGS/eval/olymmath_sft_${M}_s0
-  S1=$LOGS/eval/olymmath_sft_${M}_s1
-  OUT=$LOGS/eval/olymmath_sft_${M}
+  MODEL=$CKPT/${PREFIX}${M}_merged
+  S0=$LOGS/eval/olymmath_${PREFIX}${M}_s0
+  S1=$LOGS/eval/olymmath_${PREFIX}${M}_s1
+  OUT=$LOGS/eval/olymmath_${PREFIX}${M}
   if [ ! -d "$MODEL" ]; then echo "!! [$M] 缺模型目录 $MODEL —— 跳过"; continue; fi
 
   echo "---- [$M] 开始 model=$MODEL ----"

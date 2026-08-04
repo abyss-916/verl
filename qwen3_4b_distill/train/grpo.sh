@@ -18,7 +18,7 @@ RM=${RM:-naive}                                   # reward_manager：math/mc=nai
 CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
 LORA_RANK=${LORA_RANK:-32}; LORA_ALPHA=${LORA_ALPHA:-32}   # 与 SFT 一致（rank32/alpha32/all-linear）
-GM=${GM:-0.5}                                     # vLLM 显存占比(colocate)：actor 已 param_offload + vLLM enforce_eager 省 CUDA graph → 0.5 实测可过 update_weights 尖峰；正式跑第一步验、可微调(0.45~0.55)
+GM=${GM:-0.70}                                    # vLLM 显存占比(colocate)：actor param_offload + enforce_eager 后,0.75 在 2.7G 共享卡上曾"站住"但仅~0.2G 余量(被瞬时占用一顶即 OOM)→默认降 0.70 留~1.4G 安全垫(TP=2 每卡权重仅4G,KV 仍极充裕)；第一步验显存,紧就 0.68、宽可回 0.75
 # TP=2(张量并行,默认)：本机 GPU0 被占 2.7G + RESP=16384 KV 很吃显存 → 半权重(4G/卡)腾出 KV、把两卡喂满、且不 OOM。
 #   代价是无 NVLink 下逐层 PCIe all-reduce。若头几步吞吐明显偏慢，可 TP=1 换回数据并行对比(各卡独立生成、无跨卡通信，但显存更紧)。
 TP=${TP:-2}

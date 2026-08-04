@@ -11,14 +11,15 @@
 set -uo pipefail   # 不加 -e：某法失败要跳过、不拖垮其余
 source "$(dirname "$0")/env.sh"
 
-BASE=${BASE:-$MODELS/Qwen3-4B}                 # LoRA 冻结 base，故 base=原始 student
+BASE=${BASE:-$MODELS/Qwen3-4B}                 # LoRA 冻结 base，故 base=原始 student。⚠ GRPO 叠 SFT-merged 时传 BASE=$CKPT/sft_<法>_merged，末尾自检才量的是 GRPO 增量而非 SFT+GRPO 合量
+PREFIX=${PREFIX:-sft_}                          # ckpt 目录前缀：SFT=sft_（默认,向后兼容）；GRPO 传 PREFIX= 空 + METHODS=grpo_<法>
 METHODS=${METHODS:-"omni_standard_cot omni_reverse omni_question_aug"}
 
 for M in $METHODS; do
-  CKPT_DIR="$CKPT/sft_$M"
+  CKPT_DIR="$CKPT/${PREFIX}$M"
   STEP=$(ls -d "$CKPT_DIR"/global_step_* 2>/dev/null | sort -V | tail -1)
   if [ -z "$STEP" ]; then echo "!! [$M] 无 global_step 于 $CKPT_DIR，跳过"; continue; fi
-  VM="$CKPT/sft_${M}_vmerge"; OUT="$CKPT/sft_${M}_merged"
+  VM="$CKPT/${PREFIX}${M}_vmerge"; OUT="$CKPT/${PREFIX}${M}_merged"
   echo "==== [$M] step=$STEP -> $OUT ===="
   rm -rf "$VM" "$OUT"
 

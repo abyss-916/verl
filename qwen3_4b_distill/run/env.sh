@@ -31,6 +31,7 @@ export WANDB_MODE=${WANDB_MODE:-offline}   # 默认离线（免登录、不卡�
 export JE_ARROW_MALLOC_CONF=${JE_ARROW_MALLOC_CONF:-background_thread:false}  # pyarrow 内嵌 jemalloc 后台线程 fork 时 SIGSEGV → 关后台线程
 export NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE:-1}     # 无 NVLink：两卡 peer access 不支持 → 禁 P2P、退回 SHM
 export NCCL_CUMEM_ENABLE=${NCCL_CUMEM_ENABLE:-0}   # NCCL cuMem 在此拓扑仍要 peer access → 关掉,配合上一条才不崩
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}  # 抗碎片：归还 reserved-but-unallocated,缓解共享卡 razor-thin 余量下的临界 OOM（PyTorch OOM 报错亦建议）。若 vLLM 显存 profiling 报异常再取消
 mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$PIP_CACHE_DIR" "$TORCH_EXTENSIONS_DIR" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
 
 export STUDENT_BASE=${STUDENT_BASE:-$MODELS/Qwen3-4B}   # 唯一 student=Qwen3-4B(instruct,带 thinking+chat 模板);不用 Base 版
