@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# GRPO 后训练 + grpo_eval（从 SFT ckpt 起）。定位=短 PoC(EPOCHS=1≈几百步~1晚,非必交加分,见 doc/报告_方法学.md §7)；tmux/nohup 后台跑。
+# GRPO 后训练（从 SFT ckpt 起，仅训练；LoRA GRPO 的 eval 必须先 merge 折叠→见文末与 run/10_grpo_chain.sh）。
+#   定位=短 PoC(EPOCHS=1≈几百步~1晚,非必交加分)；tmux/nohup 后台跑。
 # 首次务必： TEST=1 bash run/03_grpo.sh   验证不 OOM 再正式跑。
+# 注：本项目实跑用 run/10_grpo_chain.sh（GRPO→merge→eval 一键；从 SFT-merged 起、GM=0.70）；本脚本保留作单步 GRPO。
 #
 # 能力可切 ABILITY=math|code|mc —— 切 reward 判分器 / 训练·评测数据 / reward_manager / eval 脚本：
 #   math(默认): reward=math_reward,  train=math_seed,  eval=olymmath(held-out), manager=naive
@@ -34,8 +36,12 @@ MODEL_PATH=${MODEL_PATH:-$(latest_hf "$CKPT/$FROM")}   # SFT 后的 HF 权重目
 MODEL_PATH="$MODEL_PATH" REWARD="$REWARD" RM="$RM" TRAIN_DIR="$TRAIN" VAL_DIR="$VAL" EXP="$EXP" \
   bash "$PROJ/train/grpo.sh"
 
-# grpo_eval：在 held-out 上，与 base/SFT 三方对照
-python "$PROJ/eval/$EVALPY" \
-  --model "$(latest_hf "$CKPT/$EXP")" --data "$VAL/test.parquet" $EVALARGS --out "$LOGS/eval/${ABILITY}_$EXP"
-
-echo "GRPO[$ABILITY] 完成：$LOGS/eval/${ABILITY}_$EXP/summary.json（对比 base / sft_$FROM 得三方结果）"
+# ⚠️ 【已删除自动 eval】本项目 GRPO 走 LoRA：raw ckpt 的 huggingface/(hf_model) 不是折叠后的完整模型——
+#    verl 把 PEFT 模型 state_dict(带 base_layer/lora_A/lora_B 键)塞进 base 架构存、未 merge_and_unload
+#    （fsdp_checkpoint_manager.py:386→423，model_config=底模架构），直接评它=评的不是 GRPO 真权重、不可信。
+#    正确评测 = 先折叠 LoRA→完整模型，再评（math 用 olymmath held-out）：
+#      PREFIX=grpo_ METHODS=<法> BASE=$CKPT/sft_<法>_merged bash run/07_merge.sh
+#      PREFIX=grpo_ METHODS=<法>                            bash run/06_sft_eval_all.sh
+#    以上两步已由 run/10_grpo_chain.sh 串成一键（GRPO→merge→eval，启动一次）。
+echo "GRPO[$ABILITY] 训练完成：ckpt=$(ls -d "$CKPT/$EXP"/global_step_* 2>/dev/null | sort -V | tail -1)"
+echo "  → 评测请走 merge+eval（run/10_grpo_chain.sh）；勿直接评 raw ckpt 的 huggingface/（=未折叠 LoRA）"
