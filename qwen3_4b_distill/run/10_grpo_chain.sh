@@ -44,12 +44,17 @@ echo "############################################################"
 echo ">>>>> [1/3] GRPO 训练开始 $(date '+%F %T')  (env=$GRPO_ENV)"
 conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }
 rm -rf "$CKPT/$EXP"    # 干净重启（短 PoC，不从上次崩溃点续，避免半写 ckpt）
-if ! EXP="$EXP" MODEL_PATH="$SFT_BASE" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" \
-      bash "$PROJ/train/grpo.sh"; then
-  echo "!! [1/3] GRPO 非零退出（见上方 traceback）。若为 step1 显存尖峰 → 降 GM=0.68 重跑。链终止"; exit 1
-fi
+EXP="$EXP" MODEL_PATH="$SFT_BASE" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" \
+  bash "$PROJ/train/grpo.sh"
+GRC=$?    # 记退出码仅作诊断——【关键】不据此判成败：verl/Ray teardown 常在训练成功后仍吐非零码,
+          #  若据退出码终止=“训练成功却不接 merge”(正是要避免的那个坑)
+timeout 60 ray stop >/dev/null 2>&1 || true    # 收干净自己的 Ray worker,把两卡完整交给 eval(防孤儿进程占卡致 eval OOM)
+# 成败以“最终 ckpt 是否产出”为准：save_freq>0 时 is_last_step 必存;EPOCHS=1 仅末步存 → 有 ckpt ⟺ 训练真跑完
 GSTEP=$(ls -d "$CKPT/$EXP"/global_step_* 2>/dev/null | sort -V | tail -1)
-[ -n "$GSTEP" ] || { echo "!! [1/3] 无 ckpt 产出于 $CKPT/$EXP，链终止"; exit 1; }
+if [ -z "$GSTEP" ]; then
+  echo "!! [1/3] 训练未产出 ckpt(退出码=$GRC)。若 step1 显存尖峰 OOM → 降 GM=0.68 重跑本脚本。链终止"; exit 1
+fi
+[ "$GRC" -ne 0 ] && echo "   (注:grpo.sh 退出码=$GRC,但最终 ckpt 已产出=训练成功,照常接续;非零多为 Ray 关闭噪声)"
 echo ">>>>> [1/3] GRPO 完成 $(date '+%F %T')  ckpt=$GSTEP"
 
 # ===================== ② merge =====================

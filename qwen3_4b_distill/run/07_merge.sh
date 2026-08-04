@@ -25,7 +25,8 @@ for M in $METHODS; do
 
   # 1) verl 抽 base + lora_adapter（peft 格式）。若报分布式相关错，改用：torchrun --nproc_per_node 1 -m verl.model_merger ...
   python -m verl.model_merger merge --backend fsdp --local_dir "$STEP" --target_dir "$VM" \
-    || { echo "!! [$M] model_merger 失败，跳过"; continue; }
+    || torchrun --nproc_per_node 1 -m verl.model_merger merge --backend fsdp --local_dir "$STEP" --target_dir "$VM" \
+    || { echo "!! [$M] model_merger（python 与 torchrun 兜底均）失败，跳过"; continue; }
   if [ ! -d "$VM/lora_adapter" ]; then echo "!! [$M] 未生成 lora_adapter（可能非 LoRA ckpt），跳过"; continue; fi
 
   # 2) peft 折叠 adapter → 完整模型
