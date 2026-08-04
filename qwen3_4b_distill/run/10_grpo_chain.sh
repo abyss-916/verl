@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# GRPO → merge → eval 一键自动接续：你只启动一次，后台按顺序把三步跑完（不用手动接续）。
+#   ① GRPO(verl_grpo 环境，从 SFT-merged 起、叠 LoRA r32) → ② merge(GRPO-LoRA 折进 SFT-merged 底模)
+#   → ③ eval(verl 环境，held-out OlymMATH-hard、n=4，与 base/SFT 同环境=结果可比)
+# 每步失败即 fail-loud 终止后续（不会“合了个空模型再白评一夜”）。
+#
+# 用法（先 git pull 到最新；在任一已初始化 conda 的 shell 里）：
+#   cd /data/liujiachen/verl/qwen3_4b_distill
+#   setsid bash run/10_grpo_chain.sh > /data/liujiachen/logs/run/10_grpo_chain.log 2>&1 < /dev/null &
+#   tail -f /data/liujiachen/logs/run/10_grpo_chain.log        # 看三步总进度（banner）
+#   # GRPO 细节同在该 log；eval 逐卡进度在 $LOGS/run/eval_omni_standard_s{0,1}.log
+# 可覆盖：METHOD / FROM / EPOCHS / GM / RESP / N / TBS / EVAL_N / EVAL_GM / GRPO_ENV / EVAL_ENV
+#   例：显存更紧 → GM=0.68 setsid bash run/10_grpo_chain.sh ...
+set -o pipefail   # 不用 -e/-u：脚本内要 conda activate（-u 会被 conda 内部脚本触发误报）、且每步失败要自定义处理
+source "$(dirname "$0")/env.sh"
+
+# ---- conda 环境切换：GRPO=verl_grpo；eval=verl（与 base/SFT eval 同环境，保证可比）----
+CONDA_BASE=$(conda info --base 2>/dev/null)
+if [ -z "$CONDA_BASE" ] || [ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
+  echo "!! conda 未就绪（conda info --base 失败）——请在已初始化 conda 的 shell 里启动本脚本"; exit 1
+fi
+source "$CONDA_BASE/etc/profile.d/conda.sh"
+GRPO_ENV=${GRPO_ENV:-verl_grpo}
+EVAL_ENV=${EVAL_ENV:-verl}
+
+# ---- 参数（默认= standard 一法、EPOCHS=1 短 PoC）----
+METHOD=${METHOD:-omni_standard}                 # 接在前缀后的方法名（与 SFT-merged 命名对齐）
+FROM=${FROM:-sft_omni_standard_cot_merged}      # GRPO 起点 = SFT-merged 底模
+EXP=grpo_${METHOD}                              # ckpt 目录名 = grpo_omni_standard
+SFT_BASE="$CKPT/$FROM"
+EPOCHS=${EPOCHS:-1}; GM=${GM:-0.70}; RESP=${RESP:-16384}; N=${N:-5}; TBS=${TBS:-32}
+EVAL_N=${EVAL_N:-4}; EVAL_GM=${EVAL_GM:-0.8}
+MERGED="$CKPT/${EXP}_merged"
+RESULT="$LOGS/eval/olymmath_${EXP}/summary.json"
+
+echo "############################################################"
+echo "# [chain] $EXP  |  GRPO: EPOCHS=$EPOCHS GM=$GM RESP=$RESP N=$N TBS=$TBS  |  eval: n=$EVAL_N gm=$EVAL_GM"
+echo "#   起点 SFT-merged = $SFT_BASE"
+echo "#   env: GRPO=$GRPO_ENV  eval=$EVAL_ENV   起始 $(date '+%F %T')"
+echo "############################################################"
+[ -d "$SFT_BASE" ] || { echo "!! 缺 SFT 底模 $SFT_BASE，终止"; exit 1; }
+
+# ===================== ① GRPO =====================
+echo ">>>>> [1/3] GRPO 训练开始 $(date '+%F %T')  (env=$GRPO_ENV)"
+conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }
+rm -rf "$CKPT/$EXP"    # 干净重启（短 PoC，不从上次崩溃点续，避免半写 ckpt）
+if ! EXP="$EXP" MODEL_PATH="$SFT_BASE" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" \
+      bash "$PROJ/train/grpo.sh"; then
+  echo "!! [1/3] GRPO 非零退出（见上方 traceback）。若为 step1 显存尖峰 → 降 GM=0.68 重跑。链终止"; exit 1
+fi
+GSTEP=$(ls -d "$CKPT/$EXP"/global_step_* 2>/dev/null | sort -V | tail -1)
+[ -n "$GSTEP" ] || { echo "!! [1/3] 无 ckpt 产出于 $CKPT/$EXP，链终止"; exit 1; }
+echo ">>>>> [1/3] GRPO 完成 $(date '+%F %T')  ckpt=$GSTEP"
+
+# ===================== ② merge =====================
+echo ">>>>> [2/3] merge（GRPO-LoRA 折进 SFT-merged 底模）开始 $(date '+%F %T')"
+PREFIX=grpo_ METHODS="$METHOD" BASE="$SFT_BASE" bash "$PROJ/run/07_merge.sh"
+[ -d "$MERGED" ] || { echo "!! [2/3] 未产出 $MERGED（见上方 merge 日志），链终止"; exit 1; }
+echo ">>>>> [2/3] merge 完成 $(date '+%F %T')  merged=$MERGED"
+echo "     注：自检 rel 偏小属正常——短 GRPO PoC 权重移动本就远小于 SFT，有效性看下一步 pass@1"
+
+# ===================== ③ eval =====================
+echo ">>>>> [3/3] eval（held-out OlymMATH-hard, n=$EVAL_N）开始 $(date '+%F %T')  (env=$EVAL_ENV)"
+conda activate "$EVAL_ENV" || { echo "!! 无法 conda activate $EVAL_ENV"; exit 1; }
+PREFIX=grpo_ METHODS="$METHOD" N="$EVAL_N" GM="$EVAL_GM" bash "$PROJ/run/06_sft_eval_all.sh"
+if [ -f "$RESULT" ]; then
+  echo "############################################################"
+  echo "# [chain] 全部完成 $(date '+%F %T') → $RESULT"
+  echo "#   对照 base@4  pass@1/pass@4/cons@4 = 15.75 / 32.16 / 17.46"
+  echo "#         SFT-standard              = 15.25 / 34.0  / 20.0"
+  echo "############################################################"
+  cat "$RESULT"
+else
+  echo "!! [3/3] 未见 $RESULT（看 $LOGS/run/eval_${METHOD}_s{0,1}.log），eval 可能失败"; exit 1
+fi
