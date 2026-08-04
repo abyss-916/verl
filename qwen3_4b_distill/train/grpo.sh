@@ -36,6 +36,12 @@ else
 fi
 TOTLEN=$(( 1024 + RESP ))   # 单序列最长 = prompt(1024)+response(RESP)；micro-batch token 预算须 ≥ 它
 
+# 短 PoC：STEPS>0 时限定总步数(覆盖 EPOCHS)。无 NVLink 下 TP=2 每步很慢(~3h)，
+#   跑满 1 epoch(~15步)要 ~47h → 用 STEPS 截成过夜量(如 8 步)，verl is_last_step 仍会存最终 ckpt。
+STEPS=${STEPS:-0}
+STEP_CAP=""
+[ "$STEPS" -gt 0 ] 2>/dev/null && STEP_CAP="trainer.total_training_steps=$STEPS"
+
 python3 -m verl.trainer.main_ppo \
   algorithm.adv_estimator=grpo \
   algorithm.use_kl_in_reward=False \
@@ -93,6 +99,7 @@ python3 -m verl.trainer.main_ppo \
   trainer.project_name=qwen3-4b-grpo \
   trainer.experiment_name=$EXP \
   trainer.logger='["console","wandb"]' \
+  $STEP_CAP \
   "$@"
 
 # ── LoRA GRPO 关键点(与全参的区别) ──

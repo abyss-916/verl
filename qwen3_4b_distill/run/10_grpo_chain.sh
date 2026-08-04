@@ -29,14 +29,15 @@ FROM=${FROM:-sft_omni_standard_cot_merged}      # GRPO 起点 = SFT-merged 底�
 EXP=grpo_${METHOD}                              # ckpt 目录名 = grpo_omni_standard
 SFT_BASE="$CKPT/$FROM"
 EPOCHS=${EPOCHS:-1}; GM=${GM:-0.70}; RESP=${RESP:-16384}; N=${N:-5}; TBS=${TBS:-32}
-TP=${TP:-2}    # rollout 张量并行。2=每卡半权重省显存但无 NVLink 下逐 token 跨卡 all-reduce=慢；
-               #   1=数据并行(两卡各跑完整模型、无跨卡通信=快很多)但每卡扛满 8G(显存更紧,第一步验 summon)
+TP=${TP:-2}    # rollout 张量并行。2=每卡半权重省显存(summon 能过)但无 NVLink 下逐 token 跨卡 all-reduce=慢；
+               #   1=每卡满 8G→update_weights(summon)必 OOM(实测),这套硬件只能 TP=2
+STEPS=${STEPS:-0}   # 0=按 EPOCHS 跑满(~15步~47h)；>0=短 PoC 限定步数(如 8→过夜)。TP=2 每步~3h,据此估时
 EVAL_N=${EVAL_N:-4}; EVAL_GM=${EVAL_GM:-0.8}
 MERGED="$CKPT/${EXP}_merged"
 RESULT="$LOGS/eval/olymmath_${EXP}/summary.json"
 
 echo "############################################################"
-echo "# [chain] $EXP  |  GRPO: EPOCHS=$EPOCHS TP=$TP GM=$GM RESP=$RESP N=$N TBS=$TBS  |  eval: n=$EVAL_N gm=$EVAL_GM"
+echo "# [chain] $EXP  |  GRPO: EPOCHS=$EPOCHS STEPS=$STEPS TP=$TP GM=$GM RESP=$RESP N=$N TBS=$TBS  |  eval: n=$EVAL_N gm=$EVAL_GM"
 echo "#   起点 SFT-merged = $SFT_BASE"
 echo "#   env: GRPO=$GRPO_ENV  eval=$EVAL_ENV   起始 $(date '+%F %T')"
 echo "############################################################"
@@ -46,7 +47,7 @@ echo "############################################################"
 echo ">>>>> [1/3] GRPO 训练开始 $(date '+%F %T')  (env=$GRPO_ENV)"
 conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }
 rm -rf "$CKPT/$EXP"    # 干净重启（短 PoC，不从上次崩溃点续，避免半写 ckpt）
-EXP="$EXP" MODEL_PATH="$SFT_BASE" TP="$TP" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" \
+EXP="$EXP" MODEL_PATH="$SFT_BASE" TP="$TP" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" STEPS="$STEPS" \
   bash "$PROJ/train/grpo.sh"
 GRC=$?    # 记退出码仅作诊断——【关键】不据此判成败：verl/Ray teardown 常在训练成功后仍吐非零码,
           #  若据退出码终止=“训练成功却不接 merge”(正是要避免的那个坑)
