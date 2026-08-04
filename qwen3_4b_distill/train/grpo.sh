@@ -22,6 +22,10 @@ GM=${GM:-0.70}                                    # vLLM 显存占比(colocate)�
 # TP=2(张量并行,默认)：本机 GPU0 被占 2.7G + RESP=16384 KV 很吃显存 → 半权重(4G/卡)腾出 KV、把两卡喂满、且不 OOM。
 #   代价是无 NVLink 下逐层 PCIe all-reduce。若头几步吞吐明显偏慢，可 TP=1 换回数据并行对比(各卡独立生成、无跨卡通信，但显存更紧)。
 TP=${TP:-2}
+# 融合 LM-head+CE（verl 自带 Triton kernel，稠密 Qwen3 走 dense_common）：log_prob 前向不 materialize
+#   [token×词表(~15万)] 大 logits（TP 下还要 full_tensor 聚合到单卡=峰值元凶），直接砍掉那一笔、数值等价、不动 RESP。
+#   这是长响应(RESP=16384)下 compute_log_prob OOM 的正解。若报兼容错可 FUSED=False 回退(再靠降 RESP)。
+FUSED=${FUSED:-True}
 
 if [ "${TEST:-0}" = "1" ]; then
   TBS=8; MINI=8; RESP=256; N=4; EPOCHS=1; LR=${LR:-1e-5}
@@ -50,6 +54,7 @@ python3 -m verl.trainer.main_ppo \
   actor_rollout_ref.model.lora_alpha=$LORA_ALPHA \
   actor_rollout_ref.model.target_modules=all-linear \
   actor_rollout_ref.model.use_remove_padding=True \
+  actor_rollout_ref.model.use_fused_kernels=$FUSED \
   actor_rollout_ref.model.enable_gradient_checkpointing=True \
   actor_rollout_ref.actor.optim.lr=$LR \
   actor_rollout_ref.actor.ppo_mini_batch_size=$MINI \
