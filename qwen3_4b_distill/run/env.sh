@@ -31,7 +31,9 @@ export WANDB_MODE=${WANDB_MODE:-offline}   # 默认离线（免登录、不卡�
 export JE_ARROW_MALLOC_CONF=${JE_ARROW_MALLOC_CONF:-background_thread:false}  # pyarrow 内嵌 jemalloc 后台线程 fork 时 SIGSEGV → 关后台线程
 export NCCL_P2P_DISABLE=${NCCL_P2P_DISABLE:-1}     # 无 NVLink：两卡 peer access 不支持 → 禁 P2P、退回 SHM
 export NCCL_CUMEM_ENABLE=${NCCL_CUMEM_ENABLE:-0}   # NCCL cuMem 在此拓扑仍要 peer access → 关掉,配合上一条才不崩
-export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}  # 抗碎片：归还 reserved-but-unallocated,缓解共享卡 razor-thin 余量下的临界 OOM（PyTorch OOM 报错亦建议）。若 vLLM 显存 profiling 报异常再取消
+# ⚠️ 【勿设】PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True —— 与 vLLM CuMemAllocator(sleep_mode/colocate 内存池)
+#    不兼容,会在 GRPO 的 vLLM 引擎初始化时 `AssertionError: Expandable segments are not compatible with memory pool`
+#    (pytorch#147851)。抗 OOM 一律靠 GM(0.70) 与 offload/enforce_eager,不要用 expandable_segments。
 export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-true}  # HF 快档并行分词（verl 对 GRPO 本就默认 true,此处显式化让 eval 路径也吃到）。注:fork 后仍会自动降级、tokenize 占比极小,非主要提速项
 mkdir -p "$HF_HOME" "$MODELSCOPE_CACHE" "$XDG_CACHE_HOME" "$PIP_CACHE_DIR" "$TORCH_EXTENSIONS_DIR" "$TMPDIR" "$RAY_TMPDIR" "$WANDB_DIR" 2>/dev/null || true
 
