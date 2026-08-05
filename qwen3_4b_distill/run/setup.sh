@@ -4,9 +4,8 @@
 #   bash run/setup.sh                 # 建默认环境 verl 并安装
 #   ENV_NAME=verl_grpo bash run/setup.sh   # 建另一环境名
 #
-# 说明：本脚本给的是 verl 原生安装命令。本项目实跑用两个隔离环境（verl / verl_grpo）；
-# 因 glibc 2.31 需把 vLLM 钉在 ≤0.12、flash-attn 用预编译轮子，且有 2×3090 无 NVLink 的崩溃修复 env——
-# 这些项目专属约束见 run/env.sh 顶部与 doc，不在本脚本内。
+# 本脚本为 verl 原生安装命令。项目实跑用两个隔离环境（verl / verl_grpo），另有版本约束
+#   （glibc 2.31 → vLLM ≤0.12、flash-attn 预编译轮子）与运行时修复，见 run/env.sh，不在本脚本内。
 set -euo pipefail
 
 ENV_NAME=${ENV_NAME:-verl}

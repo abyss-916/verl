@@ -43,7 +43,7 @@ STEPS=${STEPS:-0}
 STEP_CAP=""
 [ "$STEPS" -gt 0 ] 2>/dev/null && STEP_CAP="trainer.total_training_steps=$STEPS"
 
-# 缺训练种子则 fail-loud（code/mc 须自备与评测集不重叠的 train 种子；否则进 verl 深处才崩、浪费加载时间）
+# 缺训练种子则提前退出（code/mc 须自备与评测集不重叠的 train 种子；否则要到 verl 加载后期才报错）
 [ -f "$TRAIN_DIR/train.parquet" ] || { echo "!! 缺 $TRAIN_DIR/train.parquet —— code/mc 需自备与评测集不重叠的 train 种子（设 TRAIN_DIR= 指向含 train.parquet 的目录）"; exit 1; }
 
 python3 -m verl.trainer.main_ppo \

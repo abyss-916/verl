@@ -64,9 +64,9 @@ export SEED_SOURCE=${SEED_SOURCE:-modelscope}
 export SEED_HF=${SEED_HF:-AI-ModelScope/MATH-lighteval}
 export SEED_SUBSET=${SEED_SUBSET:-}
 export SEED_DIR=${SEED_DIR:-$DATA/math_seed}
-# 主线种子 = Omni-MATH d4–5（omni_seed，500 条）。创建流程（doc/RUNBOOK §9.0，当时 ad-hoc 完成）：
-#   Omni-MATH 4428 题 → 过滤 difficulty∈{4,5} + 仅保留规则可校验的数值型答案 + 对 OlymMATH-hard 逐题去泄漏
-#   → seed_d45_clean（2056 题，0 泄漏）→ shuffle(seed=0) → 留出 150 + 种子 500（索引 150:650，与留出不相交）。
+# 主线种子 = Omni-MATH d4–5（omni_seed，500 条）。创建流程（详见 doc/RUNBOOK §9.0）：
+#   Omni-MATH 4428 → 过滤 difficulty∈{4,5} + 仅数值可校验答案 + 对 OlymMATH-hard 去泄漏 → 2056 题
+#   → shuffle(seed=0) → 留出 150 + 种子 500（索引 150:650，与留出不相交）。
 export OMNI_SEED_DIR=${OMNI_SEED_DIR:-$DATA/omni_seed}
 # EVAL：held-out 评测（任务一选型 OlymMATH），不进入训练。OlymMATH 体量小、hf-mirror 可下载，故保持 hf。
 export EVAL_SOURCE=${EVAL_SOURCE:-hf}
@@ -76,8 +76,8 @@ export EVAL_DIR=${EVAL_DIR:-$DATA/olymmath}
 
 # ── 能力域切换（distill / sft / grpo / eval 用；默认 math）──
 # 按 ABILITY 切换：reward 判分器 / reward_manager / 训练种子 / 评测集 / 评测脚本 / 造数据基线方法。
-# ⚠️ 只有 math 端到端跑过；code/mc 各模块就绪但未训（仅跑过 base eval）。code/mc 的 SFT/GRPO 首次跑前，
-#    须自备与评测集不重叠的 train 种子（LiveCodeBench/MMLU-Pro 仅 test），并令 ABILITY_SEED_DIR 指向含 train.parquet 的目录。
+# 注：只有 math 端到端验证过；code/mc 各模块就绪但未训。code/mc 的 SFT/GRPO 首次跑前须自备与评测集不重叠的
+#    train 种子（LiveCodeBench/MMLU-Pro 仅 test），并使 ABILITY_SEED_DIR 指向含 train.parquet 的目录。
 export ABILITY=${ABILITY:-math}
 case "$ABILITY" in
   code) export REWARD_FN=$PROJ/reward/code_reward.py; export REWARD_MGR=prime; export ABILITY_SEED_DIR=$DATA/livecodebench; export ABILITY_EVAL_DIR=$DATA/livecodebench; export EVAL_PY=eval_code.py; export DISTILL_METHOD=code_cot ;;
