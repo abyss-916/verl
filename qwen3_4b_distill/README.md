@@ -13,32 +13,33 @@
 ```
 qwen3_4b_distill/
 ├── data_preprocess/     数据集 → verl parquet（RL / eval 格式）
-│   ├── prepare_math.py      数学：MATH 种子（训练）/ OlymMATH（held-out 评测），答案自适应抽取
 │   ├── prepare_code.py      代码：LiveCodeBench（防污染窗）
+│   ├── prepare_math.py      数学：MATH 种子（训练）/ OlymMATH（held-out 评测），答案自适应抽取
 │   └── prepare_mc.py        选择题：MMLU-Pro / SuperGPQA / AIME（扩展 benchmark）
 ├── distill/
 │   └── generate_cot.py      教师造 CoT + 可验证过滤 → SFT messages parquet（六种方法，见下）
-├── train/
-│   ├── sft.sh               off-policy 序列蒸馏（LoRA，2×3090 适配）
-│   ├── whole_conv_sft_dataset.py  整段渲染 SFT 数据集（保住 Qwen3 <think>，见文件内说明）
-│   ├── grpo.sh              GRPO 后训练（LoRA 叠 SFT-merged，2×3090 适配）
-│   └── opd.sh               On-Policy Distillation（弃跑，见"已知取舍"）
-├── reward/                  可验证奖励（GRPO / eval 共用，与判定同源）
-│   ├── math_reward.py           math-verify
-│   ├── code_reward.py           prime_code 跑单测
-│   └── mc_reward.py             \boxed{字母} 匹配
 ├── eval/                    held-out 评测（base / SFT / GRPO 通用）
-│   ├── eval_math.py             pass@1 / avg@k / pass@k（thinking，含截断率）
-│   ├── eval_code.py / eval_mc.py
 │   ├── base_at_k.py             由既有样本重算不同 k 的指标，不重跑生成
+│   ├── eval_code.py             代码评测（LiveCodeBench）
+│   ├── eval_math.py             pass@1 / avg@k / pass@k（thinking，含截断率）
+│   ├── eval_mc.py               选择题评测（MMLU-Pro / SuperGPQA）
 │   └── merge_shards.py          多卡分片结果合并（与单卡等价）
 ├── metrics/                 数据度量与归因（课题核心）
-│   ├── data_metrics.py          length / distinct-n / PPL / IFD（均以 student 基座视角计算）
-│   ├── compare_methods.py       各方法数据侧指标对比表
 │   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
-│   ├── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
-│   └── manifest.py              单实验记录聚合（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐）
+│   ├── compare_methods.py       各方法数据侧指标对比表
+│   ├── data_metrics.py          length / distinct-n / PPL / IFD（均以 student 基座视角计算）
+│   ├── manifest.py              单实验记录聚合（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐）
+│   └── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
+├── reward/                  可验证奖励（GRPO / eval 共用，与判定同源）
+│   ├── code_reward.py           prime_code 跑单测
+│   ├── math_reward.py           math-verify
+│   └── mc_reward.py             \boxed{字母} 匹配
 ├── run/                     编排脚本（见下方编排脚本表）
+├── train/
+│   ├── grpo.sh              GRPO 后训练（LoRA 叠 SFT-merged，2×3090 适配）
+│   ├── opd.sh               On-Policy Distillation（弃跑，见"已知取舍"）
+│   ├── sft.sh               off-policy 序列蒸馏（LoRA，2×3090 适配）
+│   └── whole_conv_sft_dataset.py  整段渲染 SFT 数据集（保住 Qwen3 <think>，见文件内说明）
 └── README.md
 ```
 
