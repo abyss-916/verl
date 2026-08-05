@@ -47,19 +47,19 @@ dl() {  # $1 = repo，如 Qwen/Qwen3-8B —— 重试直到完整（config.json 
   for try in 1 2 3 4 5 6; do
     if [ "${HF:-0}" = "1" ]; then hf download "$repo" --local-dir "$dest" || true
     else modelscope download --model "$repo" --local_dir "$dest" || true; fi
-    if [ -f "$dest/config.json" ] && ! has_incomplete "$dest"; then echo "  ✓ ${1##*/} 完整"; return; fi
-    echo "  ⚠️ 第 $try 次后仍有 .incomplete，8s 后重试续下..."; sleep 8
+    if [ -f "$dest/config.json" ] && ! has_incomplete "$dest"; then echo "  [ok] ${1##*/} 完整"; return; fi
+    echo "  [warn] 第 $try 次后仍有 .incomplete，8s 后重试续下..."; sleep 8
   done
-  echo "  ❌ ${1##*/} 多次重试仍不完整——网速太差，晚点再跑或换 HF=1"
+  echo "  [X] ${1##*/} 多次重试仍不完整——网速太差，晚点再跑或换 HF=1"
 }
 
 for m in "${LIST[@]}"; do dl "$m"; done
 
 if [ "${#LIST[@]}" -gt 0 ]; then
-  echo "==== 模型清单（✓=完整 / ❌=不完整需重跑本脚本续下）===="
+  echo "==== 模型清单（[ok]=完整 / [X]=不完整需重跑本脚本续下）===="
   for m in "${LIST[@]}"; do
     d="$MODELS/${m##*/}"
-    if [ -f "$d/config.json" ] && ! has_incomplete "$d"; then st="✓ $(du -sh "$d" 2>/dev/null | cut -f1)"; else st="❌ 不完整"; fi
+    if [ -f "$d/config.json" ] && ! has_incomplete "$d"; then st="[ok] $(du -sh "$d" 2>/dev/null | cut -f1)"; else st="[X] 不完整"; fi
     printf "  %-28s %s\n" "${m##*/}" "$st"
   done
 fi

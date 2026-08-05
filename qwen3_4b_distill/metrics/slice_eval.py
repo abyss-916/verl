@@ -33,7 +33,7 @@ def mcnemar_p(b, c):
 def _na_warn(keys, by):
     """切片字段在该数据上全为 NA 时给出告警。"""
     if set(keys) == {"NA"}:
-        return (f"> ⚠️ 切片字段 `{by}` 在本数据上全为 NA(该字段不适用：OlymMATH 只有 subject、"
+        return (f"> [warn] 切片字段 `{by}` 在本数据上全为 NA(该字段不适用：OlymMATH 只有 subject、"
                 f"LiveCodeBench 用 difficulty/platform、MC 用 category/discipline)——换 --by 再看。")
     return ""
 

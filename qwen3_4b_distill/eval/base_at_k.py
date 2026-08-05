@@ -57,7 +57,7 @@ def main():
         gt = str(r["gt"])
         n = len(samples)
         if n < a.k:
-            raise SystemExit(f"❌ 某题只有 {n} 个样本 < k={a.k}，无法重算")
+            raise SystemExit(f"[fatal] 某题只有 {n} 个样本 < k={a.k}，无法重算")
 
         # 每个样本是否正确
         corr = [1 if compute_score(s, gt) >= 1.0 else 0 for s in samples]

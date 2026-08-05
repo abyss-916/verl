@@ -26,7 +26,7 @@ def main():
             for line in f:
                 r = json.loads(line)
                 if r["question"] in seen:      # 分片本应互斥，重复则跳过并告警
-                    print(f"⚠️ 跳过重复题目（{d}）")
+                    print(f"[warn] 跳过重复题目（{d}）")
                     continue
                 seen.add(r["question"])
                 rows.append(r)
@@ -35,7 +35,7 @@ def main():
     for key in ("model", "data", "n_samples", "thinking", "max_new"):
         vals = {json.dumps(m.get(key), ensure_ascii=False) for m in metas}
         if len(vals) > 1:
-            raise SystemExit(f"❌ 各分片 {key} 不一致，拒绝合并：{vals}")
+            raise SystemExit(f"[fatal] 各分片 {key} 不一致，拒绝合并：{vals}")
 
     pk_key = next(k for k in rows[0] if k.startswith("pass@"))
     N = len(rows)

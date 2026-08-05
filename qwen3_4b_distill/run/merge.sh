@@ -57,7 +57,7 @@ for k in common:
     with safe_open(o[k], framework="pt") as st: B=st.get_tensor(k).float()
     rels.append(((A-B).norm()/(A.norm()+1e-9)).item())
 med, mx = S.median(rels), max(rels)
-flag = "OK 学到了" if med >= 1e-3 else "⚠ 疑似没训动(rel太小),查 LR/数据"
+flag = "OK 学到了" if med >= 1e-3 else "[warn] 疑似没训动(rel太小),查 LR/数据"
 print(f"[{os.path.basename(sys.argv[2])}] rel median/max(40张量)= {med:.2e} / {mx:.2e}  -> {flag}")
 PY
 
