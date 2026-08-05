@@ -87,7 +87,7 @@ qwen3_4b_distill/
 
 ## 流水线
 
-数据流与模块职责：`data_preprocess/prepare_math`（数据集 → verl parquet）→ `distill/generate_cot`（教师造 CoT + 可验证过滤 → SFT parquet）→ `train/sft.sh`（LoRA 序列蒸馏）→ `run/07_merge.sh`（LoRA 折叠为完整 HF 模型）→ `eval/eval_math.py`（held-out 评测）；可选 `train/grpo.sh`（GRPO 后训练）后同样经 merge → eval。`metrics/` 在数据侧计算度量（length / distinct-n / PPL / IFD）并做"数据属性 ↔ 下游表现"的归因。各阶段的编排入口见下方脚本表。
+数据流与模块职责：`data_preprocess/prepare_math`（数据集 → verl parquet）→ `distill/generate_cot`（教师造 CoT + 可验证过滤 → SFT parquet）→ `run/sft.sh`（SFT 蒸馏，内部 train/sft.sh → merge → eval）→ `run/eval.sh`（held-out 评测）；可选 `run/grpo.sh`（GRPO 后训练 → merge → eval 一条龙）。`run/merge.sh` 负责把 LoRA 折叠为完整模型。`metrics/` 在数据侧计算度量（length / distinct-n / PPL / IFD）并做"数据属性 ↔ 下游表现"的归因。各阶段的编排入口见下方脚本表。
 
 > 具体运行 / 复现命令属交付文档范畴，见文档仓 `material/复现记录`；本 README 只说明代码结构与设计，不含复现步骤。
 
@@ -100,17 +100,20 @@ qwen3_4b_distill/
 
 ## 编排脚本（`run/`）
 
+按功能命名，一条命令启动一个模块（不需手敲原子命令 + 长串参数）。
+
 | 脚本 | 作用 |
 |---|---|
+| `setup.sh` | 环境配置（按 verl 官方流程建 conda 环境 + 装 verl 与后端） |
 | `env.sh` | 公共路径 + 缓存重定向 + 崩溃修复 env（被所有脚本 source） |
-| `00_smoke.sh` | 环境自检 + verl 入口核对 |
-| `01_task1_data_and_base_eval.sh` | 任务一：数据接入 + base eval |
-| `gen_distill.sh` | 造蒸馏数据安全启动器（冒烟→正式；换 METHOD / TEACHER / LIMIT 通用） |
-| `06_sft_eval_all.sh` | 多方法下游 SFT-eval 满配对比（两卡分片、串行） |
-| `07_merge.sh` | LoRA 折叠为完整 HF 模型（含权重移动自检；PPO ckpt 自动取 `actor/` 子目录） |
-| `03_grpo.sh` | 单步 GRPO 训练（能力可切 math/code/mc；仅训练，评测须先经 07_merge 折叠） |
-| `make_manifest.py` | 单实验完整记录（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐） |
-| `05_extended.sh` | 扩展 benchmark base eval（code / MMLU-Pro 等） |
+| `download.sh` | 下载模型 + 接入数据集（→ verl parquet） |
+| `distill.sh` | 造数据：教师造 CoT + 可验证过滤（冒烟→正式；换 METHOD / TEACHER / LIMIT） |
+| `sft.sh` | SFT 一条龙：训练 → merge → eval |
+| `grpo.sh` | GRPO 一条龙：训练 → merge → eval（自动切 conda 环境、每步 fail-loud 门控） |
+| `merge.sh` | LoRA 折叠为完整 HF 模型（含权重移动自检；PPO ckpt 自动取 `actor/` 子目录） |
+| `eval.sh` | held-out 评测（`METHODS=base` 评 base，或评已 merge 的 SFT/GRPO；两卡分片） |
+| `eval_extended.sh` | 扩展 benchmark base eval（code / MMLU-Pro 等） |
+| `manifest.py` | 单实验完整记录（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐） |
 
 ---
 

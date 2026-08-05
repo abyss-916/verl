@@ -4,7 +4,7 @@ base-SFT-GRPO 结果/论文对齐"——把散落的 gen_stats.json(造数据侧
 手填元数据(数据集/教师/学生/论文锚点/阶段/备注) 聚成一份可追溯记录。
 
 用法（服务器）：
-  python run/make_manifest.py --name sft_standard_cot --out "$LOGS/manifests" \
+  python run/manifest.py --name sft_standard_cot --out "$LOGS/manifests" \
     --gen_stats "$DATA/distill/standard_cot/gen_stats.json" \
     --eval "$LOGS/eval/olymmath_sft_standard/summary.json" \
     --set dataset=OlymMATH-en-hard --set student=Qwen3-4B --set teacher=Qwen3-8B \

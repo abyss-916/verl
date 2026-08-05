@@ -6,8 +6,8 @@
 #   merged≈base、rel~1e-4，eval 会假性等于 base；此自检用于拦截该情形，阈值见第 3 步）。
 #
 # 用法（服务器，先 source env.sh；CPU 即可，无需 GPU）：
-#   METHODS="omni_standard_cot omni_reverse omni_question_aug" bash run/07_merge.sh
-# 单法：METHODS="omni_standard_cot" bash run/07_merge.sh
+#   METHODS="omni_standard_cot omni_reverse omni_question_aug" bash run/merge.sh
+# 单法：METHODS="omni_standard_cot" bash run/merge.sh
 set -uo pipefail   # 不加 -e：某法失败时跳过，不影响其余
 source "$(dirname "$0")/env.sh"
 

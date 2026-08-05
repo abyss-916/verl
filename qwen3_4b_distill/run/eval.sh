@@ -1,17 +1,13 @@
 #!/usr/bin/env bash
-# 三法下游 SFT→eval 对比 | OlymMATH-hard(held-out) 100题 | n=4 | 每法两卡分片、三法串行
-#   对比对象：base(M1) vs standard_cot / reverse / question_aug。
-#   模型用 peft 合并后的 $CKPT/sft_<法>_merged（verl model_merger 不折叠 LoRA，须用 _merged）。
-#
-# 用法（服务器，先 conda activate verl；先看 nvidia-smi 确认两卡空闲）：
-#   setsid bash /data/liujiachen/verl/qwen3_4b_distill/run/06_sft_eval_all.sh \
-#       > /data/liujiachen/logs/run/06_sft_eval_all.log 2>&1 < /dev/null &
-#   # 只跑某几法：      METHODS="reverse question_aug" setsid bash …/06_sft_eval_all.sh …
-#   # 换卡(先看 smi)：  G0=0 G1=1  （分片0→G0，分片1→G1）
-#   # 实时看进度：      tail -f $LOGS/run/eval_standard_cot_s0.log $LOGS/run/eval_standard_cot_s1.log
-#
-# 每法两卡各跑一片、占满两张卡，故三法串行；单法约 7h、三法约 22h（n=4、思考约 22K token/条）。
-# 用 setsid 而非 nohup：vLLM/torchrun 的孙进程自带信号处理器，关终端的 SIGHUP 会穿透 nohup。
+# held-out 评测（OlymMATH-hard 100 题）：base 或已 merge 的 SFT/GRPO 模型；每法两卡分片、多法串行。
+#   模型：METHODS=base → $STUDENT_BASE；否则 $CKPT/<PREFIX><法>_merged（LoRA 须先经 merge.sh 折叠）。
+# 用法（先 conda activate verl；先看 nvidia-smi 确认两卡空闲）：
+#   METHODS=base setsid bash run/eval.sh > $LOGS/run/eval.log 2>&1 < /dev/null &          # base eval
+#   METHODS="standard_cot reverse question_aug" setsid bash run/eval.sh ...               # SFT 三法
+#   PREFIX=grpo_ METHODS=omni_standard setsid bash run/eval.sh ...                        # GRPO
+#   # 换卡：G0=0 G1=1；实时进度：tail -f $LOGS/run/eval_<法>_s{0,1}.log
+# 每法两卡各跑一片、占满两张卡故串行；单法约 7h（n=4、思考约 22K token/条）。
+# 用 setsid 而非 nohup：vLLM/torchrun 孙进程自带信号处理器，关终端 SIGHUP 会穿透 nohup。
 set -uo pipefail   # 不加 -e：某一法/某片失败时跳过，不影响其余两法
 source "$(dirname "$0")/env.sh"
 
@@ -25,10 +21,10 @@ METHODS=${METHODS:-"standard_cot reverse question_aug"}
 
 echo "==== eval 开始 | n=$N gm=$GM 卡=($G0,$G1) 前缀=[$PREFIX] 方法=[$METHODS] data=$DATA_PARQUET ===="
 for M in $METHODS; do
-  MODEL=$CKPT/${PREFIX}${M}_merged
-  S0=$LOGS/eval/olymmath_${PREFIX}${M}_s0
-  S1=$LOGS/eval/olymmath_${PREFIX}${M}_s1
-  OUT=$LOGS/eval/olymmath_${PREFIX}${M}
+  if [ "$M" = "base" ]; then MODEL=$STUDENT_BASE; TAG=base; else MODEL=$CKPT/${PREFIX}${M}_merged; TAG=${PREFIX}${M}; fi
+  S0=$LOGS/eval/olymmath_${TAG}_s0
+  S1=$LOGS/eval/olymmath_${TAG}_s1
+  OUT=$LOGS/eval/olymmath_${TAG}
   if [ ! -d "$MODEL" ]; then echo "!! [$M] 缺模型目录 $MODEL —— 跳过"; continue; fi
 
   echo "---- [$M] 开始 model=$MODEL ----"

@@ -109,5 +109,5 @@ python3 -m verl.trainer.main_ppo \
 #   · rollout 须 load_format=safetensors + layered_summon=True（vLLM 加载 base + 逐层 summon 同步 LoRA 权重）
 #   · use_kl_loss=True(coef 0.001, low_var_kl)：ref 为冻结 base(关 LoRA)，不额外占显存，稳定训练（DeepSeekMath 做法）
 #   · RESP 可设较大(默认 16384)，覆盖 Omni d4–5 学生解、避免截断丢 reward；第一步验显存，OOM 则 RESP=12288/8192
-#   · test_freq=-1 / val_before_train=False：训练中途不跑昂贵的 held-out eval(最终 eval 由 03_grpo.sh 单独执行)
+#   · test_freq=-1 / val_before_train=False：训练中途不跑昂贵的 held-out eval(最终 eval 单独执行(见 run/eval.sh))
 # ── code / mc ──（同前）reward 换 code_reward.py(RM=prime) / mc_reward.py(RM=naive)。

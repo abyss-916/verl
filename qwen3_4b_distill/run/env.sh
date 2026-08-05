@@ -43,7 +43,7 @@ export TEACHER=${TEACHER:-$MODELS/Qwen3-8B}
 # code 线（LiveCodeBench，任务一 math+code 的 code 侧）
 export CODE_HF=${CODE_HF:-livecodebench/code_generation_lite}
 export CODE_VERSION=${CODE_VERSION:-release_v5}
-# 扩展 benchmark（run/05_extended.sh 使用；有余量时运行）
+# 扩展 benchmark（run/eval_extended.sh 使用；有余量时运行）
 export MMLU_PRO_HF=${MMLU_PRO_HF:-TIGER-Lab/MMLU-Pro}
 export SUPERGPQA_HF=${SUPERGPQA_HF:-m-a-p/SuperGPQA}
 export AIME_HF=${AIME_HF:-yentinglin/aime_2025}   # AIME2025，列 problem/answer；置空则跳过
