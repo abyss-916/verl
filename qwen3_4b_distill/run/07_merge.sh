@@ -19,13 +19,15 @@ for M in $METHODS; do
   CKPT_DIR="$CKPT/${PREFIX}$M"
   STEP=$(ls -d "$CKPT_DIR"/global_step_* 2>/dev/null | sort -V | tail -1)
   if [ -z "$STEP" ]; then echo "!! [$M] 无 global_step 于 $CKPT_DIR，跳过"; continue; fi
+  # PPO/GRPO 按角色分目录：ckpt 在 $STEP/actor/（含 huggingface/config.json + lora_adapter）；SFT 单模型直接在 $STEP/。
+  SRC="$STEP"; [ -d "$STEP/actor" ] && SRC="$STEP/actor"
   VM="$CKPT/${PREFIX}${M}_vmerge"; OUT="$CKPT/${PREFIX}${M}_merged"
-  echo "==== [$M] step=$STEP -> $OUT ===="
+  echo "==== [$M] src=$SRC -> $OUT ===="
   rm -rf "$VM" "$OUT"
 
   # 1) verl 抽 base + lora_adapter（peft 格式）。若报分布式相关错，改用：torchrun --nproc_per_node 1 -m verl.model_merger ...
-  python -m verl.model_merger merge --backend fsdp --local_dir "$STEP" --target_dir "$VM" \
-    || torchrun --nproc_per_node 1 -m verl.model_merger merge --backend fsdp --local_dir "$STEP" --target_dir "$VM" \
+  python -m verl.model_merger merge --backend fsdp --local_dir "$SRC" --target_dir "$VM" \
+    || torchrun --nproc_per_node 1 -m verl.model_merger merge --backend fsdp --local_dir "$SRC" --target_dir "$VM" \
     || { echo "!! [$M] model_merger（python 与 torchrun 兜底均）失败，跳过"; continue; }
   if [ ! -d "$VM/lora_adapter" ]; then echo "!! [$M] 未生成 lora_adapter（可能非 LoRA ckpt），跳过"; continue; fi
 

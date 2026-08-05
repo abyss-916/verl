@@ -44,24 +44,32 @@ echo "############################################################"
 [ -d "$SFT_BASE" ] || { echo "!! 缺 SFT 底模 $SFT_BASE，终止"; exit 1; }
 
 # ===================== ① GRPO =====================
-echo ">>>>> [1/3] GRPO 训练开始 $(date '+%F %T')  (env=$GRPO_ENV)"
-conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }
-rm -rf "$CKPT/$EXP"    # 干净重启（短 PoC，不从上次崩溃点续，避免半写 ckpt）
-EXP="$EXP" MODEL_PATH="$SFT_BASE" TP="$TP" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" STEPS="$STEPS" \
-  bash "$PROJ/train/grpo.sh"
-GRC=$?    # 记退出码仅作诊断——【关键】不据此判成败：verl/Ray teardown 常在训练成功后仍吐非零码,
-          #  若据退出码终止=“训练成功却不接 merge”(正是要避免的那个坑)
-timeout 60 ray stop >/dev/null 2>&1 || true    # 收干净自己的 Ray worker,把两卡完整交给 eval(防孤儿进程占卡致 eval OOM)
-# 成败以“最终 ckpt 是否产出”为准：save_freq>0 时 is_last_step 必存;EPOCHS=1 仅末步存 → 有 ckpt ⟺ 训练真跑完
-GSTEP=$(ls -d "$CKPT/$EXP"/global_step_* 2>/dev/null | sort -V | tail -1)
-if [ -z "$GSTEP" ]; then
-  echo "!! [1/3] 训练未产出 ckpt(退出码=$GRC)。若 step1 显存尖峰 OOM → 降 GM=0.68 重跑本脚本。链终止"; exit 1
+GSTEP_EXIST=$(ls -d "$CKPT/$EXP"/global_step_* 2>/dev/null | sort -V | tail -1)
+if [ "${RESUME:-0}" = "1" ] && [ -n "$GSTEP_EXIST" ]; then
+  # 复用已训好的 ckpt(如 merge/eval 曾失败要重来时)，不重跑那几小时 GRPO
+  GSTEP="$GSTEP_EXIST"
+  echo ">>>>> [1/3] RESUME=1：复用已存 GRPO ckpt=$GSTEP，跳过训练 $(date '+%F %T')"
+else
+  echo ">>>>> [1/3] GRPO 训练开始 $(date '+%F %T')  (env=$GRPO_ENV)"
+  conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }
+  rm -rf "$CKPT/$EXP"    # 干净重启（短 PoC，不从上次崩溃点续，避免半写 ckpt）
+  EXP="$EXP" MODEL_PATH="$SFT_BASE" TP="$TP" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" STEPS="$STEPS" \
+    bash "$PROJ/train/grpo.sh"
+  GRC=$?    # 记退出码仅作诊断——【关键】不据此判成败：verl/Ray teardown 常在训练成功后仍吐非零码,
+            #  若据退出码终止=“训练成功却不接 merge”(正是要避免的那个坑)
+  timeout 60 ray stop >/dev/null 2>&1 || true    # 收干净自己的 Ray worker,把两卡完整交给 eval(防孤儿进程占卡致 eval OOM)
+  # 成败以“最终 ckpt 是否产出”为准：save_freq>0 时 is_last_step 必存;EPOCHS=1 仅末步存 → 有 ckpt ⟺ 训练真跑完
+  GSTEP=$(ls -d "$CKPT/$EXP"/global_step_* 2>/dev/null | sort -V | tail -1)
+  if [ -z "$GSTEP" ]; then
+    echo "!! [1/3] 训练未产出 ckpt(退出码=$GRC)。若 step1 显存尖峰 OOM → 降 GM=0.68 重跑本脚本。链终止"; exit 1
+  fi
+  [ "$GRC" -ne 0 ] && echo "   (注:grpo.sh 退出码=$GRC,但最终 ckpt 已产出=训练成功,照常接续;非零多为 Ray 关闭噪声)"
+  echo ">>>>> [1/3] GRPO 完成 $(date '+%F %T')  ckpt=$GSTEP"
 fi
-[ "$GRC" -ne 0 ] && echo "   (注:grpo.sh 退出码=$GRC,但最终 ckpt 已产出=训练成功,照常接续;非零多为 Ray 关闭噪声)"
-echo ">>>>> [1/3] GRPO 完成 $(date '+%F %T')  ckpt=$GSTEP"
 
 # ===================== ② merge =====================
 echo ">>>>> [2/3] merge（GRPO-LoRA 折进 SFT-merged 底模）开始 $(date '+%F %T')"
+conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }   # RESUME 模式下前面没激活,这里显式保证(model_merger+peft 在写 ckpt 的同环境最稳)
 PREFIX=grpo_ METHODS="$METHOD" BASE="$SFT_BASE" bash "$PROJ/run/07_merge.sh"
 [ -d "$MERGED" ] || { echo "!! [2/3] 未产出 $MERGED（见上方 merge 日志），链终止"; exit 1; }
 echo ">>>>> [2/3] merge 完成 $(date '+%F %T')  merged=$MERGED"
