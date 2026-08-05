@@ -10,9 +10,9 @@
 
 公平对比铁律：各法共用同一 teacher / 同一 chat 模板 / 同一采样预算。判定器按能力切换（math-verify / prime_code / 字母匹配），与 eval 同源。
 用法（服务器）：
-  # ⚠️ --seed 只用 MATH 训练种子，绝不用 olymmath（那是 held-out 评测集，拿来蒸馏=泄漏）
+  # ⚠️ --seed 只用训练种子（主线 omni_seed / 初期 math_seed），绝不用 olymmath（held-out 评测集，拿来蒸馏=泄漏）
   python generate_cot.py --method reverse \
-    --seed /data/liujiachen/datasets/math_seed/train.parquet \
+    --seed /data/liujiachen/datasets/omni_seed/train.parquet \
     --teacher /data/liujiachen/models/Qwen3-8B --out /data/liujiachen/datasets/distill/reverse --tp 2
 """
 

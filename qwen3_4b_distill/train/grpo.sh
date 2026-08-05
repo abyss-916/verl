@@ -20,7 +20,8 @@ SAVE=${SAVE:-$CKPT/$EXP}
 LORA_RANK=${LORA_RANK:-32}; LORA_ALPHA=${LORA_ALPHA:-32}   # 与 SFT 一致（rank32/alpha32/all-linear）
 GM=${GM:-0.70}                                    # vLLM 显存占比(colocate)：actor param_offload + enforce_eager 后,0.75 在 2.7G 共享卡上曾"站住"但仅~0.2G 余量(被瞬时占用一顶即 OOM)→默认降 0.70 留~1.4G 安全垫(TP=2 每卡权重仅4G,KV 仍极充裕)；第一步验显存,紧就 0.68、宽可回 0.75
 # TP=2(张量并行,默认)：本机 GPU0 被占 2.7G + RESP=16384 KV 很吃显存 → 半权重(4G/卡)腾出 KV、把两卡喂满、且不 OOM。
-#   代价是无 NVLink 下逐层 PCIe all-reduce。若头几步吞吐明显偏慢，可 TP=1 换回数据并行对比(各卡独立生成、无跨卡通信，但显存更紧)。
+#   代价是无 NVLink 下逐层 PCIe all-reduce，rollout 偏慢。注：TP=1(数据并行,两卡各扛完整模型)实测在
+#   update_weights(summon) OOM —— vLLM 满 8G/卡 + actor unshard 挤不下,故本硬件只能 TP=2；慢由短 PoC(STEPS 限步)吸收。
 TP=${TP:-2}
 # 融合 LM-head+CE（verl 自带 Triton kernel，稠密 Qwen3 走 dense_common）：log_prob 前向不 materialize
 #   [token×词表(~15万)] 大 logits（TP 下还要 full_tensor 聚合到单卡=峰值元凶），直接砍掉那一笔、数值等价、不动 RESP。

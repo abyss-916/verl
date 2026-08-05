@@ -1,67 +1,152 @@
-# qwen3_4b_distill — 夏令营课题代码（在 verl fork 之上）
+# qwen3_4b_distill
 
-课题：研究 **Qwen3-4B** 的蒸馏 pipeline `distill → metrics → sft → sft_eval → grpo → grpo_eval`，
-核心理念**不只报 accuracy，要解释为什么变**。verl 负责训练/RL/评测，本目录负责**数据构造 + 数据度量 + 编排 + 归因**。
+**Qwen3-4B 推理能力的蒸馏与强化学习后训练研究**，构建于 [verl](https://github.com/volcengine/verl) fork 之上。
 
-> 本机只写/改代码；配置、下模型、训练/评测都在**服务器 2×RTX3090** 上跑。改完 push 到 `abyss-916/verl`。
+本目录是课题的**自研代码层**：数据接入、蒸馏数据构造、数据度量与归因、评测、以及全流程编排；训练 / RL / rollout 复用 verl 框架本体。研究主线不止于报告 accuracy，而在于**解释"表现为什么变"**——把蒸馏数据的可度量属性（长度、多样性、困惑度、指令跟随难度）与学生模型的下游表现关联起来。
 
-## 服务器路径约定
-| 变量 | 默认 |
-|---|---|
-| verl 仓 | `/data/liujiachen/verl`（本目录在其下 `qwen3_4b_distill/`） |
-| 模型 | `/data/liujiachen/models/`（`Qwen3-4B`、`Qwen3-8B`…） |
-| 数据 | `/data/liujiachen/datasets/`（verl parquet） |
-| ckpt | `/data/liujiachen/checkpoints/` |
+> 代码在本仓（`abyss-916/verl`）的 `qwen3_4b_distill/` 下；过程记录、方法学与交付报告在配套文档仓（`abyss-916/project` 的 `doc/`、`material/`）。二者隔离，避免代码与文档相互污染。
 
-## 流水线与文件（对应 doc/verl框架解读.md §14.2）
-| 步 | 文件 | 作用 |
+---
+
+## 目录结构
+
+```
+qwen3_4b_distill/
+├── data_preprocess/     数据集 → verl parquet（RL / eval 格式）
+│   ├── prepare_math.py      数学：MATH 种子（训练）/ OlymMATH（held-out 评测），答案自适应抽取
+│   ├── prepare_code.py      代码：LiveCodeBench（防污染窗）
+│   └── prepare_mc.py        选择题：MMLU-Pro / SuperGPQA / AIME（扩展 benchmark）
+├── distill/
+│   └── generate_cot.py      教师造 CoT + 可验证过滤 → SFT messages parquet（六种方法，见下）
+├── train/
+│   ├── sft.sh               off-policy 序列蒸馏（LoRA，2×3090 适配）
+│   ├── whole_conv_sft_dataset.py  整段渲染 SFT 数据集（保住 Qwen3 <think>，见文件内说明）
+│   ├── grpo.sh              GRPO 后训练（LoRA 叠 SFT-merged，2×3090 适配）
+│   └── opd.sh               On-Policy Distillation（弃跑，见"已知取舍"）
+├── reward/                  可验证奖励（GRPO / eval 共用，与判定同源）
+│   ├── math_reward.py           math-verify
+│   ├── code_reward.py           prime_code 跑单测
+│   └── mc_reward.py             \boxed{字母} 匹配
+├── eval/                    held-out 评测（base / SFT / GRPO 通用）
+│   ├── eval_math.py             pass@1 / avg@k / pass@k（thinking，含截断率）
+│   ├── eval_code.py / eval_mc.py
+│   ├── base_at_k.py             由既有样本重算不同 k 的指标，不重跑生成
+│   └── merge_shards.py          多卡分片结果合并（与单卡等价）
+├── metrics/                 数据度量与归因（课题核心）
+│   ├── data_metrics.py          length / distinct-n / PPL / IFD（均以 student 基座视角计算）
+│   ├── compare_methods.py       各方法数据侧指标对比表
+│   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
+│   └── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
+├── run/                     编排脚本（详见"复现"）
+├── tests/                   reward 判定器单元自检
+└── README.md
+```
+
+---
+
+## 运行环境
+
+- **硬件**：2 × RTX 3090（24 GB，**无 NVLink**，共享机）。所有训练 / 生成 / 评测在服务器上进行；本地仅编辑代码，改后推送、服务器 `git pull`。
+- **隔离 conda 环境**（glibc 2.31 限定 vLLM ≤ 0.12）：
+  - `verl_grpo`：GRPO / rollout（torch 2.9 + cu128 / vLLM 0.12 / flash-attn 2.8.3）。
+  - `verl`：SFT / 评测。
+- **2×3090 无 NVLink 的必需运行时修复**（`run/env.sh` 已固化，`source` 即带上）：
+  - `JE_ARROW_MALLOC_CONF=background_thread:false` —— pyarrow 内嵌 jemalloc 后台线程在 Ray fork 后段错。
+  - `NCCL_P2P_DISABLE=1` + `NCCL_CUMEM_ENABLE=0` —— 无 NVLink 两卡 peer-access 不支持。
+  - **切勿设** `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` —— 与 vLLM CuMem 内存池不兼容，会在引擎初始化时断言失败。
+
+路径经环境变量集中约定（`run/env.sh`）：`PROJ` / `MODELS` / `DATA` / `CKPT` / `LOGS`，默认根为 `/data/liujiachen/`。
+
+---
+
+## 数据角色（训练与评测严格分离，防泄漏）
+
+| 角色 | 数据 | 用途 |
 |---|---|---|
-| 1 数据接入 | `data_preprocess/prepare_math.py` | 数据集 → verl **RL parquet**（含 ground_truth，供 GRPO/eval） |
-| 2 造蒸馏数据 | `distill/generate_cot.py` | teacher(8B) 造 CoT + math-verify 过滤 → **SFT messages parquet**（standard_cot/reverse/question_aug） |
-| 3 SFT | `train/sft.sh` | off-policy 序列蒸馏训 Qwen3-4B |
-| — reward | `reward/math_reward.py` | OlymMATH 等自定义集的可验证奖励（复用 verl math-verify） |
-| 4 GRPO | `train/grpo.sh` | GRPO 后训练（**2×3090 适配**，从 SFT ckpt 起，prompt=MATH 种子防泄漏） |
-| 5 度量 | `metrics/data_metrics.py` `metrics/compare_methods.py` | 各方法/教师数据 length/diversity/PPL/IFD（**student 视角**）+ 对比表 |
-| 6 评测 | `eval/eval_math.py`（+ `merge_shards.py` 分片合并） | pass@1 / avg@k / pass@k（thinking，含截断率），逐题 jsonl + 论文对齐 |
-| 7 记录 | `run/make_manifest.py` | 每实验统一记录（dataset/teacher/方法/采样/filter/数据统计/结果/论文对齐） |
-| code | `data_preprocess/prepare_code.py` `eval/eval_code.py` `reward/code_reward.py` | LiveCodeBench（需 parquet 源 + sandbox） |
+| **SEED**（蒸馏种子 + GRPO prompt） | **Omni-MATH 难度 4–5**（`omni_seed`，每法 500 条） | 造蒸馏数据、GRPO 采样。初期用 MATH-lighteval，因 instruct-4B 已饱和而切换至难度匹配的 Omni（详见报告 §5.3）。 |
+| **EVAL**（held-out） | **OlymMATH en-hard**（100 题，仅 test） | base / SFT / GRPO 全部在此评测，**绝不进训练**。 |
 
-## 编排脚本（run/）
-| 脚本 | 阶段 |
-|---|---|
-| `run/00_smoke.sh` | 环境自检 + verl 入口核对（M0→M1） |
-| `run/01_task1_data_and_base_eval.sh` | 任务一：数据接入 + base eval |
-| `run/gen_distill.sh` | 造蒸馏数据的**安全启动器**（tp=2 满预算，冒烟→正式；standard_cot/reverse/question_aug + 换教师通用） |
-| `run/03_grpo.sh` | GRPO + grpo_eval（从 SFT ckpt 起，后台跑） |
-| `run/make_manifest.py` | 每实验统一记录（满足课题§1） |
+评测统一 `max_new=38912`（thinking 需长预算）；base 用 avg@8，SFT / GRPO 用 avg@4。
 
-> **执行纪律（共享服务器 + 质量第一）**：不用"一键跑全部"的自动链；**每步先查 `nvidia-smi` 定 gpu_mem、造数据先冒烟**，逐步跑（造数据用 `gen_distill.sh`，训练 `train/sft.sh`，评测 `eval/eval_math.py`，度量 `metrics/*.py`）。任务二/三/scaling 都用 `gen_distill.sh`（换 METHOD / TEACHER / LIMIT）+ 分步命令组合。
+---
 
-`distill/generate_cot.py` 三法（standard_cot / reverse / question_aug）+ 多教师/API teacher（`--teacher_type api`）**均已实现**。
-归因：`metrics/attribution.py`（数据指标↔表现相关）+ `metrics/slice_eval.py`（**深度归因**：`--by subject` 逐学科 Δ + `--vs` 配对 McNemar + 错例）。
-code 线：`prepare_code`/`eval_code`/`code_reward`（就绪门：LCB parquet 源 + sandbox + 测试用例格式首跑核对）。
+## 蒸馏方法（`distill/generate_cot.py`）
 
-**T4 加分/stretch（不在 committed，有余量才跑；已写好、留作上限）**：
-`train/opd.sh`（On-Policy Distillation，logit KD；2×3090 可能 OOM，炸了也作"尝试+分析"写进报告）｜
-`data_preprocess/prepare_mc.py`+`eval/eval_mc.py`+`run/05_extended.sh`（MMLU-Pro/SuperGPQA/AIME 扩展 benchmark base eval）。
+各方法**共用同一教师、同一模板、同一采样预算**（公平对比），判定器随能力切换（math-verify / prime_code / 字母匹配），与评测同源。
 
-## 2×3090 铁律
-- **任何训练/生成首次先 `TEST=1`**（几十条/小 batch/短 response）验证不 OOM，再放大。
-- GRPO：去 ref(`use_kl_loss=False`) + 全 offload + rollout `TP=1` + 小 batch；完整版数天，默认只跑短 PoC(几百步~1晚，非必交加分)。
-- 全流程服务器 `tmux/nohup` 后台跑，睡前启动、醒来看结果。
+| 方法 | 来源思路 | 说明 |
+|---|---|---|
+| `standard_cot` | 标准拒绝采样 | 教师直接生成 CoT，答对者留用（基线）。 |
+| `reverse` | RevThink | 前向解 + 逆向问题 + 逆向推理 + 一致性过滤 → 多目标样本。 |
+| `question_aug` | Xwin-Math | 造新题 + 造解，无 gold 用 self-consistency 多数投票过滤。 |
+| `shortest_cot` | Concise-CoT | 每题采样多候选，正确者里留 token 最少的（测"短而对"）。 |
+| `code_cot` / `mc_cot` | — | LiveCodeBench / 选择题的对应造数据。 |
 
-## 数据角色（训练/评测严格分离）
-- **SEED（训练/蒸馏种子 + GRPO prompt）= MATH-lighteval train ~7500** → `$SEED_DIR`（服务 task2 scaling）。
-- **EVAL（held-out）= OlymMATH en-hard** → `$EVAL_DIR`（只评测，绝不进训练；所有分报在它上）。
+**教师轴**（任务三开放研究）：强度 8B → 14B → 32B-AWQ；专精 Qwen2.5-Math-7B-Instruct；跨族 DeepSeek-V4-pro（API）；顶点 235B（API 小样本）。
 
-## 一条最短跑通路径（math 主线，逐步跑；每步先查 nvidia-smi）
+---
+
+## 流水线与复现
+
+完整链路：`prepare → distill → SFT → merge → eval`，可选 `→ GRPO → merge → eval`；配合 `metrics/` 做数据度量与归因。
+
+**分步（逐步跑，每步先查 `nvidia-smi` 定 `gpu_mem`；长任务用 `setsid` 后台）**：
+
 ```bash
 source run/env.sh
-bash run/01_task1_data_and_base_eval.sh                                  # 备 SEED+EVAL 数据 + base eval(held-out)
-GPU_MEM=0.9 METHOD=standard_cot LIMIT=1000 bash run/gen_distill.sh       # 造数据(冒烟→正式，满预算；三法均1000，见 doc/报告_方法学.md §4)
-EXP=sft_standard_cot DATA_DIR=$DATA/distill/standard_cot bash train/sft.sh   # SFT(首次先 TEST=1)
-python eval/eval_math.py --model "$(latest_hf $CKPT/sft_standard_cot)" --data $EVAL_DIR/test.parquet --n 8 --out $LOGS/eval/olymmath_sft_standard
-python metrics/data_metrics.py --data $DATA/distill/standard_cot/train.parquet --model $STUDENT_BASE --out $LOGS/metrics_standard_cot.json
-# GRPO(upward)： TEST=1 bash run/03_grpo.sh   先验不 OOM
+bash run/01_task1_data_and_base_eval.sh                       # 备 SEED + EVAL 数据 + base eval
+METHOD=omni_standard_cot LIMIT=500 bash run/gen_distill.sh    # 造蒸馏数据（冒烟→正式）
+EXP=sft_omni_standard_cot DATA_DIR=$DATA/distill/omni_standard_cot bash train/sft.sh   # SFT（首次先 TEST=1）
+METHODS="omni_standard_cot" bash run/07_merge.sh              # LoRA 折叠 → 完整模型
+python eval/eval_math.py --model $CKPT/sft_omni_standard_cot_merged \
+  --data $EVAL_DIR/test.parquet --n 4 --out $LOGS/eval/olymmath_sft_omni_standard_cot
+python metrics/data_metrics.py --data $DATA/distill/omni_standard_cot/train.parquet \
+  --model $STUDENT_BASE --out $LOGS/metrics_omni_standard_cot.json
 ```
-详见 `项目 doc/RUNBOOK.md` 与 `项目 doc/课题要求对照与交付.md` 的排期。
+
+**GRPO 短 PoC（一键自动接续，`run/10_grpo_chain.sh`）**：
+
+```bash
+# GRPO(LoRA 叠 SFT-merged) → merge(折叠) → eval，一次启动、串行跑完；每步 fail-loud 门控
+STEPS=5 setsid bash run/10_grpo_chain.sh > $LOGS/run/10_grpo_chain.log 2>&1 < /dev/null &
+# 失败后复用已训 ckpt、只补 merge+eval： RESUME=1 setsid bash run/10_grpo_chain.sh ...
+```
+
+### 关键训练配置
+
+- **SFT**：LoRA rank 32 / alpha 32 / all-linear，lr 2e-4，5 epoch，`max_length` 40960，整段渲染保 `<think>`（`whole_conv_sft_dataset.py`）。
+- **GRPO**（短 PoC）：LoRA r32/α32 叠在 SFT-merged 之上；reward = math-verify；prompt 池 = Omni d4–5；**KL 至冻结 base**（关 LoRA 即参考模型，DeepSeekMath 式，`kl_loss_coef=0.001` + `low_var_kl`）；rollout TP=2、`RESP=16384`、N=5、GM=0.70；param/optimizer offload + `enforce_eager` + `use_fused_kernels`（融合 LM-head+CE，绕开长响应下的 logits 显存峰值）。2×3090 上属短程可行性演示，非收敛结果。
+
+---
+
+## 编排脚本（`run/`）
+
+| 脚本 | 作用 |
+|---|---|
+| `env.sh` | 公共路径 + 缓存重定向 + 崩溃修复 env（被所有脚本 source） |
+| `00_smoke.sh` | 环境自检 + verl 入口核对 |
+| `01_task1_data_and_base_eval.sh` | 任务一：数据接入 + base eval |
+| `gen_distill.sh` | 造蒸馏数据安全启动器（冒烟→正式；换 METHOD / TEACHER / LIMIT 通用） |
+| `06_sft_eval_all.sh` | 多方法下游 SFT-eval 满配对比（两卡分片、串行） |
+| `07_merge.sh` | LoRA 折叠为完整 HF 模型（含权重移动自检；PPO ckpt 自动取 `actor/` 子目录） |
+| `10_grpo_chain.sh` | GRPO → merge → eval 一键自动接续 |
+| `make_manifest.py` | 单实验完整记录（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐） |
+| `05_extended.sh` / `08_expansion.sh` / `09_smoke_pipeline.sh` | 扩展 benchmark / 归因扩展批 / 端到端冒烟 |
+
+---
+
+## 结果与分析
+
+下游对比（OlymMATH-hard，n=4，pass@1）：`question_aug` 17.75 是唯一稳超 base(15.75) 的方法，`reverse` 11.0 为多任务稀释的负结果，跨族 DeepSeek 因文体长度爆炸大量截断而崩。归因上 **PPL 是最强预测子**（Pearson r ≈ −0.82），预设的 IFD 反而弱。完整数据、表格与论证见文档仓的 `material/实验报告`。
+
+---
+
+## 已知取舍
+
+- **OPD（On-Policy Distillation）弃跑**：2×3090 上 teacher+student+vLLM 共显存 OOM，且跨族异 tokenizer 无法 on-policy；停在设计与脚本阶段，报告如实标注。
+- **GRPO 为短 PoC**：无 NVLink 下 TP=2 逐 token 跨卡 all-reduce 使 rollout 偏慢，按算力约束截为短程演示。
+- 扩展 benchmark（SuperGPQA / AIME）代码就绪但未跑，留作上限。
+
+## 致谢
+
+训练 / RL / rollout 基于 [verl](https://github.com/volcengine/verl)。判定复用 verl 内置 math-verify / prime_code。

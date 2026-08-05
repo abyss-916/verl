@@ -55,7 +55,8 @@ export DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE:-https://api.deepseek.com}
 export QWEN_API_BASE=${QWEN_API_BASE:-https://dashscope.aliyuncs.com/compatible-mode/v1}
 
 # ── 数据角色（严格分离，服务高质量课题）──
-# SEED：训练/蒸馏种子 + GRPO prompt（MATH train ~7500，服务 task2 scaling）。
+# SEED：训练/蒸馏种子 + GRPO prompt。初期种子=MATH-lighteval train（~7500，下方 SEED_DIR）；因 instruct-4B
+#   已饱和，主线改用难度匹配的 Omni-MATH d4-5（omni_seed，单独准备，由 grpo.sh/10_grpo_chain.sh 直接引用）。
 #   国内直连 HF 常超时、competition_math 又是脚本型(datasets 5.0 已禁) → 走 ModelScope 的 parquet 原生镜像
 #   AI-ModelScope/MATH-lighteval：prepare_math.py 用 modelscope CLI 整仓下 parquet 到本地再读，绕开脚本+超时。
 #   列 problem/level/type/solution，自动解析。逗号可给多候选。

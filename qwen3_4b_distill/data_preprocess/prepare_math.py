@@ -1,7 +1,7 @@
 """数学数据集 → verl RL parquet。改编自 verl/examples/data_preprocess/math_dataset.py。
 
 两种角色（高质量课题的关键：训练集与评测集严格分离）：
-  - SEED（训练/蒸馏种子/GRPO prompt）：大数学训练集，如 MATH-lighteval train（~7500）。
+  - SEED（训练/蒸馏种子/GRPO prompt）：数学训练集。主线用 Omni-MATH d4–5（难度匹配）；初期用 MATH-lighteval train（~7500，已饱和）。
   - EVAL（held-out 评测）：OlymMATH 等，绝不进训练。
 
 答案自适应：OlymMATH 用纯 `answer` 列；MATH 用 `solution` 里的 \boxed 抽取。
