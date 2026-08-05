@@ -37,7 +37,7 @@ qwen3_4b_distill/
 │   ├── compare_methods.py       各方法数据侧指标对比表
 │   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
 │   └── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
-├── run/                     编排脚本（详见"复现"）
+├── run/                     编排脚本（见下方编排脚本表）
 └── README.md
 ```
 
@@ -85,33 +85,13 @@ qwen3_4b_distill/
 
 ---
 
-## 流水线与复现
+## 流水线
 
-完整链路：`prepare → distill → SFT → merge → eval`，可选 `→ GRPO → merge → eval`；配合 `metrics/` 做数据度量与归因。
+数据流与模块职责：`data_preprocess/prepare_math`（数据集 → verl parquet）→ `distill/generate_cot`（教师造 CoT + 可验证过滤 → SFT parquet）→ `train/sft.sh`（LoRA 序列蒸馏）→ `run/07_merge.sh`（LoRA 折叠为完整 HF 模型）→ `eval/eval_math.py`（held-out 评测）；可选 `train/grpo.sh`（GRPO 后训练）后同样经 merge → eval。`metrics/` 在数据侧计算度量（length / distinct-n / PPL / IFD）并做"数据属性 ↔ 下游表现"的归因。各阶段的编排入口见下方脚本表。
 
-**分步（逐步跑，每步先查 `nvidia-smi` 定 `gpu_mem`；长任务用 `setsid` 后台）**：
+> 具体运行 / 复现命令属交付文档范畴，见文档仓 `material/复现记录`；本 README 只说明代码结构与设计，不含复现步骤。
 
-```bash
-source run/env.sh
-bash run/01_task1_data_and_base_eval.sh                       # 备 SEED + EVAL 数据 + base eval
-METHOD=omni_standard_cot LIMIT=500 bash run/gen_distill.sh    # 造蒸馏数据（冒烟→正式）
-EXP=sft_omni_standard_cot DATA_DIR=$DATA/distill/omni_standard_cot bash train/sft.sh   # SFT（首次先 TEST=1）
-METHODS="omni_standard_cot" bash run/07_merge.sh              # LoRA 折叠 → 完整模型
-python eval/eval_math.py --model $CKPT/sft_omni_standard_cot_merged \
-  --data $EVAL_DIR/test.parquet --n 4 --out $LOGS/eval/olymmath_sft_omni_standard_cot
-python metrics/data_metrics.py --data $DATA/distill/omni_standard_cot/train.parquet \
-  --model $STUDENT_BASE --out $LOGS/metrics_omni_standard_cot.json
-```
-
-**GRPO 短 PoC（一键自动接续，`run/10_grpo_chain.sh`）**：
-
-```bash
-# GRPO(LoRA 叠 SFT-merged) → merge(折叠) → eval，一次启动、串行跑完；每步 fail-loud 门控
-STEPS=5 setsid bash run/10_grpo_chain.sh > $LOGS/run/10_grpo_chain.log 2>&1 < /dev/null &
-# 失败后复用已训 ckpt、只补 merge+eval： RESUME=1 setsid bash run/10_grpo_chain.sh ...
-```
-
-### 关键训练配置
+### 关键设计与配置
 
 - **SFT**：LoRA rank 32 / alpha 32 / all-linear，lr 2e-4，5 epoch，`max_length` 40960，整段渲染保 `<think>`（`whole_conv_sft_dataset.py`）。
 - **GRPO**（短 PoC）：LoRA r32/α32 叠在 SFT-merged 之上；reward = math-verify；prompt 池 = Omni d4–5；**KL 至冻结 base**（关 LoRA 即参考模型，DeepSeekMath 式，`kl_loss_coef=0.001` + `low_var_kl`）；rollout TP=2、`RESP=16384`、N=5、GM=0.70；param/optimizer offload + `enforce_eager` + `use_fused_kernels`（融合 LM-head+CE，绕开长响应下的 logits 显存峰值）。2×3090 上属短程可行性演示，非收敛结果。
@@ -128,7 +108,7 @@ STEPS=5 setsid bash run/10_grpo_chain.sh > $LOGS/run/10_grpo_chain.log 2>&1 < /d
 | `gen_distill.sh` | 造蒸馏数据安全启动器（冒烟→正式；换 METHOD / TEACHER / LIMIT 通用） |
 | `06_sft_eval_all.sh` | 多方法下游 SFT-eval 满配对比（两卡分片、串行） |
 | `07_merge.sh` | LoRA 折叠为完整 HF 模型（含权重移动自检；PPO ckpt 自动取 `actor/` 子目录） |
-| `10_grpo_chain.sh` | GRPO → merge → eval 一键自动接续 |
+| `03_grpo.sh` | 单步 GRPO 训练（能力可切 math/code/mc；仅训练，评测须先经 07_merge 折叠） |
 | `make_manifest.py` | 单实验完整记录（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐） |
 | `05_extended.sh` | 扩展 benchmark base eval（code / MMLU-Pro 等） |
 
@@ -136,7 +116,7 @@ STEPS=5 setsid bash run/10_grpo_chain.sh > $LOGS/run/10_grpo_chain.log 2>&1 < /d
 
 ## 结果与分析
 
-下游对比（OlymMATH-hard，n=4，pass@1）：`question_aug` 17.75 是唯一稳超 base(15.75) 的方法，`reverse` 11.0 为多任务稀释的负结果，跨族 DeepSeek 因文体长度爆炸大量截断而崩。归因上 **PPL 是最强预测子**（Pearson r ≈ −0.82），预设的 IFD 反而弱。完整数据、表格与论证见文档仓的 `material/实验报告`。
+实验结果、归因与完整论证属交付文档范畴，见文档仓 `material/`（实验报告 / 数据集接入报告 / 复现记录）。
 
 ---
 
