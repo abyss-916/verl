@@ -36,7 +36,8 @@ qwen3_4b_distill/
 │   ├── data_metrics.py          length / distinct-n / PPL / IFD（均以 student 基座视角计算）
 │   ├── compare_methods.py       各方法数据侧指标对比表
 │   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
-│   └── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
+│   ├── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
+│   └── manifest.py              单实验记录聚合（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐）
 ├── run/                     编排脚本（见下方编排脚本表）
 └── README.md
 ```
@@ -113,7 +114,6 @@ qwen3_4b_distill/
 | `merge.sh` | LoRA 折叠为完整 HF 模型（含权重移动自检；PPO ckpt 自动取 `actor/` 子目录） |
 | `eval.sh` | held-out 评测（`METHODS=base` 评 base，或评已 merge 的 SFT/GRPO；两卡分片） |
 | `eval_extended.sh` | 扩展 benchmark base eval（code / MMLU-Pro 等） |
-| `manifest.py` | 单实验完整记录（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐） |
 
 ---
 

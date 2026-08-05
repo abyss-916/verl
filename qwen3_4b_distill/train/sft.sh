@@ -26,8 +26,8 @@ EXP=${EXP:-sft_standard_cot}
 SAVE=${SAVE:-/data/liujiachen/checkpoints/$EXP}
 NPROC=${NPROC:-2}
 SP_SIZE=${SP_SIZE:-1}       # 2×3090 先不开序列并行；长 CoT 显存紧可设 2
-USE_PEFT=${USE_PEFT:-0}     # 默认全参 SFT；显存不够改 1 走 LoRA
-LR=${LR:-1e-5}
+USE_PEFT=${USE_PEFT:-1}     # 默认 LoRA（本项目实跑值；2×3090 上 4B 全参装不下）。大显存机走全参改 0
+LR=${LR:-2e-4}             # LoRA 主配置实跑值（1e-5 为全参量级、对 LoRA 欠拟合致 merged≈base，见报告 §6.3）
 
 if [ "${TEST:-0}" = "1" ]; then
   MB=1; MAXLEN=1024; EPOCHS=1; TRUNC=right     # 冒烟仅验证跑通、依赖齐全、小配置不 OOM，允许右截断
@@ -35,10 +35,10 @@ else
   # MAXLEN 须覆盖蒸馏数据长度。data.truncation=error 让超长行直接报错而非静默右截断，
   #    避免"丢掉结尾 \boxed 的半截 CoT"坏样本进入训练；配合造数据后预删超长行 + 训练前长度预检使用。
   #    正式训练前依 gen_stats.json 定 MAXLEN：尽量 ≥ tok_max；tok_max 过大装不下则预删超长行。
-  #    16384 覆盖实测 p99≈11.6K，仅作缺省值，具体见 gen_stats.json。
+  #    40960=Qwen3 位置上限，覆盖长 CoT（实测 p99≈11.6K）；具体可依 gen_stats.json 调。
   #    显存不足时：动态批(use_dynamic_bsz)下 MB 基本无效，省显存靠 ①SP_SIZE=2(序列并行，跨两卡切分
   #       长序列、不丢样本，需 USE_FLASH=1) ②activation offload / 梯度检查点。不建议降 MAXLEN/MAX_TOKENS，否则须丢弃长 CoT。
-  MB=${MB:-2}; MAXLEN=${MAXLEN:-16384}; EPOCHS=${EPOCHS:-3}; TRUNC=error
+  MB=${MB:-2}; MAXLEN=${MAXLEN:-40960}; EPOCHS=${EPOCHS:-5}; TRUNC=error   # 实跑值：LoRA / lr2e-4 / 40960 / 5 epoch / batch32
 fi
 # 动态批每卡 token 预算须 >= 最长样本；verl 缺省 8192，长样本会触发 seqlen_balancing 的 assert 报错
 MAX_TOKENS=${MAX_TOKENS:-$MAXLEN}

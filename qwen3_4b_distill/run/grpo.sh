@@ -31,7 +31,7 @@ SFT_BASE="$CKPT/$FROM"
 EPOCHS=${EPOCHS:-1}; GM=${GM:-0.70}; RESP=${RESP:-16384}; N=${N:-5}; TBS=${TBS:-32}
 TP=${TP:-2}    # rollout 张量并行。2=每卡半权重省显存(summon 可过)，但无 NVLink 时逐 token 跨卡 all-reduce 较慢；
                #   1=每卡满 8G，update_weights(summon)会 OOM，此硬件只能用 TP=2
-STEPS=${STEPS:-0}   # 0=按 EPOCHS 跑满(~15步~47h)；>0=短 PoC 限定步数(如 8→过夜)。TP=2 每步~3h,据此估时
+STEPS=${STEPS:-5}   # 默认 5=报告所用短 PoC（无 NVLink TP=2 每步~3h）；STEPS=0 则按 EPOCHS 跑满(~15步~47h)
 EVAL_N=${EVAL_N:-4}; EVAL_GM=${EVAL_GM:-0.8}
 MERGED="$CKPT/${EXP}_merged"
 RESULT="$LOGS/eval/olymmath_${EXP}/summary.json"

@@ -2,7 +2,7 @@
 # held-out 评测（OlymMATH-hard 100 题）：base 或已 merge 的 SFT/GRPO 模型；每法两卡分片、多法串行。
 #   模型：METHODS=base → $STUDENT_BASE；否则 $CKPT/<PREFIX><法>_merged（LoRA 须先经 merge.sh 折叠）。
 # 用法（先 conda activate verl；先看 nvidia-smi 确认两卡空闲）：
-#   METHODS=base setsid bash run/eval.sh > $LOGS/run/eval.log 2>&1 < /dev/null &          # base eval
+#   N=8 METHODS=base setsid bash run/eval.sh > $LOGS/run/eval.log 2>&1 < /dev/null &       # base eval（报告用 n=8，base@4 由 base_at_k 重算）
 #   METHODS="standard_cot reverse question_aug" setsid bash run/eval.sh ...               # SFT 三法
 #   PREFIX=grpo_ METHODS=omni_standard setsid bash run/eval.sh ...                        # GRPO
 #   # 换卡：G0=0 G1=1；实时进度：tail -f $LOGS/run/eval_<法>_s{0,1}.log
