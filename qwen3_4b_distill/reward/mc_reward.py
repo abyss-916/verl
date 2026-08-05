@@ -1,4 +1,4 @@
-"""选择题（MMLU-Pro / SuperGPQA 等）的可验证奖励，规则判分：抽取模型答案字母与正确字母比对。
+"""选择题（MMLU-Pro 等）的可验证奖励，规则判分：抽取模型答案字母与正确字母比对。
 
 verl 兼容签名 `compute_score(data_source, solution_str, ground_truth, extra_info=None) -> 0.0/1.0`，
 可直接用作 GRPO 的 `reward.custom_reward_function`（reward_manager=naive），

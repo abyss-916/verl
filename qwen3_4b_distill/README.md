@@ -15,14 +15,14 @@ qwen3_4b_distill/
 ├── data_preprocess/     数据集 → verl parquet（RL / eval 格式）
 │   ├── prepare_code.py      代码：LiveCodeBench（防污染窗）
 │   ├── prepare_math.py      数学：MATH 种子（训练）/ OlymMATH（held-out 评测），答案自适应抽取
-│   └── prepare_mc.py        选择题：MMLU-Pro / SuperGPQA / AIME（扩展 benchmark）
+│   └── prepare_mc.py        选择题：MMLU-Pro（扩展 benchmark）
 ├── distill/
 │   └── generate_cot.py      教师造 CoT + 可验证过滤 → SFT messages parquet（六种方法，见下）
 ├── eval/                    held-out 评测（base / SFT / GRPO 通用）
 │   ├── base_at_k.py             由既有样本重算不同 k 的指标，不重跑生成
 │   ├── eval_code.py             代码评测（LiveCodeBench）
 │   ├── eval_math.py             pass@1 / avg@k / pass@k（thinking，含截断率）
-│   ├── eval_mc.py               选择题评测（MMLU-Pro / SuperGPQA）
+│   ├── eval_mc.py               选择题评测（MMLU-Pro）
 │   └── merge_shards.py          多卡分片结果合并（与单卡等价）
 ├── metrics/                 数据度量、归因与实验记录（课题核心）
 │   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
@@ -130,7 +130,6 @@ qwen3_4b_distill/
 
 - **OPD（On-Policy Distillation）弃跑**：2×3090 上 teacher+student+vLLM 共显存 OOM，且跨族异 tokenizer 无法 on-policy；停在设计与脚本阶段，报告如实标注。
 - **GRPO 为短 PoC**：无 NVLink 下 TP=2 逐 token 跨卡 all-reduce 使 rollout 偏慢，按算力约束截为短程演示。
-- 扩展 benchmark（SuperGPQA / AIME）代码就绪但未跑，留作上限。
 
 ## 致谢
 

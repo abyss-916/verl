@@ -1,4 +1,4 @@
-"""选择题评测（MMLU-Pro / SuperGPQA）：vLLM 生成 → 抽取答案字母 → pass@1(avg@n)/pass@k/cons@n（thinking 模式）。
+"""选择题评测（MMLU-Pro）：vLLM 生成 → 抽取答案字母 → pass@1(avg@n)/pass@k/cons@n（thinking 模式）。
 抽取顺序：\\boxed{X} > "answer is X" > 文中最后一个孤立大写字母。
 per_question 含 question/avg/pass@k 及切片字段，供 slice_eval 与 merge_shards 使用。
 thinking 开启时先思考再输出字母，故 max_new 放大并统计 truncated_rate。

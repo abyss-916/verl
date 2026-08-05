@@ -43,9 +43,6 @@ export CODE_HF=${CODE_HF:-livecodebench/code_generation_lite}
 export CODE_VERSION=${CODE_VERSION:-release_v5}
 # 扩展 benchmark（run/eval_extended.sh 使用）
 export MMLU_PRO_HF=${MMLU_PRO_HF:-TIGER-Lab/MMLU-Pro}
-export SUPERGPQA_HF=${SUPERGPQA_HF:-m-a-p/SuperGPQA}
-export AIME_HF=${AIME_HF:-yentinglin/aime_2025}   # AIME2025，列 problem/answer；置空则跳过
-export AIME_SUBSET=${AIME_SUBSET:-}
 
 # 任务三 API teacher；key 经环境变量注入，勿写进仓库
 export DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE:-https://api.deepseek.com}
