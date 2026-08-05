@@ -24,7 +24,7 @@ qwen3_4b_distill/
 │   ├── eval_math.py             pass@1 / avg@k / pass@k（thinking，含截断率）
 │   ├── eval_mc.py               选择题评测（MMLU-Pro / SuperGPQA）
 │   └── merge_shards.py          多卡分片结果合并（与单卡等价）
-├── metrics/                 数据度量与归因（课题核心）
+├── metrics/                 数据度量、归因与实验记录（课题核心）
 │   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
 │   ├── compare_methods.py       各方法数据侧指标对比表
 │   ├── data_metrics.py          length / distinct-n / PPL / IFD（均以 student 基座视角计算）
