@@ -1,16 +1,9 @@
 #!/usr/bin/env bash
-# GRPO → merge → eval 一键自动接续：启动一次，后台按顺序跑完三步，无需手动接续。
-#   ① GRPO(verl_grpo 环境，从 SFT-merged 起、叠 LoRA r32) → ② merge(GRPO-LoRA 折进 SFT-merged 底模)
-#   → ③ eval(verl 环境，held-out OlymMATH-hard、n=4，与 base/SFT 同环境，结果可比)
-# 每步失败即 fail-loud 终止后续，避免在无效产物上继续评测。
-#
-# 用法（先 git pull 到最新；在任一已初始化 conda 的 shell 里）：
-#   cd /data/liujiachen/verl/qwen3_4b_distill
-#   setsid bash run/grpo.sh > /data/liujiachen/logs/run/grpo.log 2>&1 < /dev/null &
-#   tail -f /data/liujiachen/logs/run/grpo.log        # 看三步总进度（banner）
-#   # GRPO 细节同在该 log；eval 逐卡进度在 $LOGS/run/eval_omni_standard_s{0,1}.log
-# 可覆盖：METHOD / FROM / EPOCHS / GM / RESP / N / TBS / EVAL_N / EVAL_GM / GRPO_ENV / EVAL_ENV
-#   例：显存更紧 → GM=0.68 setsid bash run/grpo.sh ...
+# GRPO 一条龙：训练(verl_grpo) → merge 折叠 → eval(verl)，启动一次串行跑完，每步 fail-loud 门控。
+# 用法（在已初始化 conda 的 shell）：
+#   STEPS=5 setsid bash run/grpo.sh > $LOGS/run/grpo.log 2>&1 < /dev/null &
+#   RESUME=1 setsid bash run/grpo.sh ...   # 复用已训 ckpt，只补 merge+eval
+# 可覆盖：METHOD / FROM / STEPS / EPOCHS / GM / RESP / N / TBS / EVAL_N / EVAL_GM / GRPO_ENV / EVAL_ENV。
 set -o pipefail   # 不用 -e/-u：脚本内 conda activate（-u 会被 conda 内部脚本误触发）、且每步失败需自定义处理
 source "$(dirname "$0")/env.sh"
 

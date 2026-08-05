@@ -1,24 +1,10 @@
 #!/usr/bin/env bash
-# 造蒸馏数据：tp=2 满预算(教师 Qwen3-8B, max_new=38912)，占用两卡，冒烟通过后再起正式。
-# 冒烟(--limit SMOKE)先验证：① tp=2 教师能在 2×3090(无 NVLink) 启动；② 数据质量正常。冒烟失败则不起正式(set -e)。
-#
-# 用法（服务器，先 source env.sh，且两卡空闲——tp=2 需两张卡）：
-#   source run/env.sh
-#   # 先看 nvidia-smi 定 GPU_MEM：两卡空用 0.9；GPU0 被占用则相应调低(如 0.8)
-#   # 三法均 LIMIT=1000（同种子预算=受控三向对比；依据 s1K=1000 / LIMO=817 的"少而精"推理蒸馏）
-#   GPU_MEM=0.9 METHOD=standard_cot LIMIT=1000 nohup bash run/distill.sh \
-#       > "$LOGS/run/gen_standard_cot.log" 2>&1 &
-#   # reverse 同法：METHOD=reverse LIMIT=1000（每 seed 2 条长链≈2× 时长；产 3 条/题多目标）
-#   # question_aug 同法：METHOD=question_aug LIMIT=1000（无 gold 靠 self-consistency k≥3，≈4×/题最重，排最后）
-#   # 任务三强度轴（同种子换教师）：换 TEACHER + OUT，其余不变，事后 data_metrics 对比
-#   #   TEACHER=/data/liujiachen/models/Qwen3-14B OUT="$DATA/distill/t3_14b" \
-#   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/distill.sh > "$LOGS/run/gen_t3_14b.log" 2>&1 &
-#   # 任务三家族轴（Qwen2.5-Math-7B ctx=4096，须设 MAX_LEN/MAX_NEW，否则 vLLM 无法启动）：
-#   #   TEACHER=/data/liujiachen/models/Qwen2.5-Math-7B-Instruct OUT="$DATA/distill/t3_math7b" \
-#   #     METHOD=standard_cot LIMIT=500 MAX_LEN=4096 MAX_NEW=3584 GPU_MEM=0.9 nohup bash run/distill.sh > "$LOGS/run/gen_t3_math7b.log" 2>&1 &
-#   # 任务三 prompt 轴（同 8B 换蒸馏风格，只 standard_cot 生效）：
-#   #   TEACHER=$MODELS/Qwen3-8B OUT="$DATA/distill/t3_prompt2" SYS_PROMPT="Always restate ... verify by an alternative method." \
-#   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/distill.sh > "$LOGS/run/gen_t3_prompt2.log" 2>&1 &
+# 造蒸馏数据：教师生成 CoT + 可验证过滤 → SFT messages parquet。tp=2 满预算，冒烟（SMOKE 条）通过后再起正式。
+# 用法（先 source env.sh；两卡空闲）：
+#   METHOD=omni_standard_cot bash run/distill.sh
+# 可覆盖：METHOD / SEED / LIMIT / TEACHER / OUT / GPU_MEM / TP / N（shortest_cot 用 4）/
+#   MAX_LEN·MAX_NEW（短上下文教师如 Math-7B ctx=4096 须设，否则 vLLM 起不来）/ SYS_PROMPT（prompt 轴，仅 standard_cot）。
+# 各教师轴/方法的具体命令见 material/复现记录。
 set -euo pipefail
 : "${PROJ:?先 source run/env.sh}"
 : "${TEACHER:?先 source run/env.sh}"
