@@ -12,8 +12,8 @@
 用法：
   # --seed 须为训练种子（如 omni_seed / math_seed），不可用 olymmath 等 held-out 评测集，否则造成泄漏
   python generate_cot.py --method reverse \
-    --seed /data/liujiachen/datasets/omni_seed/train.parquet \
-    --teacher /data/liujiachen/models/Qwen3-8B --out /data/liujiachen/datasets/distill/reverse --tp 2
+    --seed $DATA/omni_seed/train.parquet \
+    --teacher $MODELS/Qwen3-8B --out $DATA/distill/reverse --tp 2
 """
 
 import argparse
@@ -453,7 +453,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--method", choices=["standard_cot", "shortest_cot", "reverse", "question_aug", "code_cot", "mc_cot"], required=True)
     ap.add_argument("--seed", required=True, help="RL parquet（含 prompt / reward_model.ground_truth）")
-    ap.add_argument("--teacher", default="/data/liujiachen/models/Qwen3-8B")
+    ap.add_argument("--teacher", default="$MODELS/Qwen3-8B")
     ap.add_argument("--out", required=True)
     ap.add_argument("--tp", type=int, default=2)
     ap.add_argument("--temp", type=float, default=0.6)

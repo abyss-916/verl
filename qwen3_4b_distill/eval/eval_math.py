@@ -4,9 +4,9 @@
 - 输出逐题 jsonl 与汇总 json，便于对齐与后续归因。
 
 用法：
-  python eval_math.py --model /data/liujiachen/models/Qwen3-4B-Base \
-    --data /data/liujiachen/datasets/olymmath/test.parquet \
-    --n 8 --out /data/liujiachen/logs/eval/olymmath_base
+  python eval_math.py --model $MODELS/Qwen3-4B-Base \
+    --data $DATA/olymmath/test.parquet \
+    --n 8 --out $LOGS/eval/olymmath_base
   # avg@64：AIME 类小规模测试集降低方差
 """
 

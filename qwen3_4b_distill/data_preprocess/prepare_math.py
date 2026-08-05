@@ -10,10 +10,10 @@
 用法：
   # 种子（MATH train）
   python prepare_math.py --hf DigitalLearningGmbH/MATH-lighteval --subset default \
-      --out /data/liujiachen/datasets/math_seed --data_source math_seed
+      --out $DATA/math_seed --data_source math_seed
   # held-out eval（OlymMATH）
   python prepare_math.py --hf RUC-AIBOX/OlymMATH --subset en-hard \
-      --out /data/liujiachen/datasets/olymmath --data_source olymmath
+      --out $DATA/olymmath --data_source olymmath
 """
 
 import argparse
@@ -94,7 +94,7 @@ def _load_split(source, hf, subset, split):
         import glob as _glob
         import subprocess
 
-        data_root = os.environ.get("DATA", "/data/liujiachen/datasets")
+        data_root = os.environ.get("DATA", "/data/datasets")
         errs = []
         for hid in [x.strip() for x in hf.split(",") if x.strip()]:
             local = os.path.join(data_root, "_ms_" + hid.replace("/", "__"))

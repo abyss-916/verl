@@ -56,7 +56,7 @@ qwen3_4b_distill/
   - `NCCL_P2P_DISABLE=1` + `NCCL_CUMEM_ENABLE=0` —— 无 NVLink 两卡 peer-access 不支持。
   - **切勿设** `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` —— 与 vLLM CuMem 内存池不兼容，会在引擎初始化时断言失败。
 
-路径经环境变量集中约定（`run/env.sh`）：`PROJ` / `MODELS` / `DATA` / `CKPT` / `LOGS`，默认根为 `/data/liujiachen/`。
+路径经环境变量集中约定（`run/env.sh`）：`PROJ` / `MODELS` / `DATA` / `CKPT` / `LOGS`，默认根在 `env.sh` 顶部设定，迁移改这一处即可。
 
 ---
 

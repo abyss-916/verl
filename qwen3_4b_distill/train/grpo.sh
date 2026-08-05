@@ -7,15 +7,15 @@
 #   TEST=1 ... bash train/grpo.sh    # 先 1~2 step 验证不报错 + 第一步验显存，通过再放大
 set -xeuo pipefail
 
-MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}   # 建议 = SFT 后 merged ckpt（LoRA GRPO 在其上再加一层 LoRA）
+MODEL_PATH=${MODEL_PATH:-$MODELS/Qwen3-4B}   # 建议 = SFT 后 merged ckpt（LoRA GRPO 在其上再加一层 LoRA）
 # 训练 prompt 用难度匹配的 Omni d4–5(omni_seed)：4B 在此有提升空间(探针 68.7%)，才有对/错方差即 reward 信号；
 #    MATH 种子过易已饱和(§5.3.1)，GRPO 学不到。held-out(olymmath) 仅放 VAL_DIR 监控，不进训练以防泄漏。
-TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/omni_seed}
-VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}
+TRAIN_DIR=${TRAIN_DIR:-$DATA/omni_seed}
+VAL_DIR=${VAL_DIR:-$DATA/olymmath}
 EXP=${EXP:-grpo_lora}
-REWARD=${REWARD:-/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py}
+REWARD=${REWARD:-$PROJ/reward/math_reward.py}
 RM=${RM:-naive}                                   # reward_manager：math/mc=naive；code=prime
-CKPT=${CKPT:-/data/liujiachen/checkpoints}
+CKPT=${CKPT:-/data/checkpoints}                   # 通常由 env.sh 继承（export）；此默认仅兜底无 env 直跑
 SAVE=${SAVE:-$CKPT/$EXP}
 LORA_RANK=${LORA_RANK:-32}; LORA_ALPHA=${LORA_ALPHA:-32}   # 与 SFT 一致（rank32/alpha32/all-linear）
 GM=${GM:-0.70}                                    # vLLM 显存占比(colocate)：actor param_offload + enforce_eager 后，0.75 在有 2.7G 占用的共享卡上仅剩~0.2G 余量，易被瞬时占用触发 OOM；默认降到 0.70 留~1.4G 余量(TP=2 每卡权重仅 4G，KV 仍充裕)；第一步验显存，紧则 0.68、宽可回 0.75

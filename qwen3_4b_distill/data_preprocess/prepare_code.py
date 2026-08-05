@@ -9,8 +9,8 @@
 
 用法：
   # 本地 parquet 目录
-  python prepare_code.py --source local --hf /data/liujiachen/datasets/_lcb_raw \
-    --out /data/liujiachen/datasets/livecodebench --data_source livecodebench
+  python prepare_code.py --source local --hf $DATA/_lcb_raw \
+    --out $DATA/livecodebench --data_source livecodebench
 注意：LiveCodeBench 列名随版本变化，脚本会先打印实际列名，按需在 build_row 中调整。
 """
 
@@ -95,7 +95,7 @@ def main():
     ap.add_argument("--source", default="hf", choices=["hf", "local"],
                     help="hf=直连(datasets5.0 对脚本型 LCB 会崩) / local=从本地 parquet 目录读(推荐)")
     ap.add_argument("--version", default="release_v5", help="LiveCodeBench version_tag（仅 --source hf）")
-    ap.add_argument("--out", default="/data/liujiachen/datasets/livecodebench")
+    ap.add_argument("--out", default="$DATA/livecodebench")
     ap.add_argument("--data_source", default="livecodebench")
     # LCB 防污染时间窗（按 contest_date 过滤）：Qwen3 技术报告评 LCB v5 用 2024-08-01~2025-02-01，
     # 与之对齐以保证可比性并防污染。留空则不过滤（全量）。

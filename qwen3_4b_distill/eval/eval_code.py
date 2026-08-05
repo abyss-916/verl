@@ -5,8 +5,8 @@ thinking 开启时 Qwen3 会先思考再输出代码，故 max_new 默认放大�
 截断率偏高说明生成预算不足（分数虚低），据此调大 --max_new。
 
 用法：
-  python eval_code.py --model /data/liujiachen/models/Qwen3-4B \
-    --data /data/liujiachen/datasets/livecodebench/test.parquet --n 1 --out $LOGS/eval/lcb_base
+  python eval_code.py --model $MODELS/Qwen3-4B \
+    --data $DATA/livecodebench/test.parquet --n 1 --out $LOGS/eval/lcb_base
 """
 
 import argparse

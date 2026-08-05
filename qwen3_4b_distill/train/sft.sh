@@ -2,7 +2,7 @@
 # off-policy 序列蒸馏 SFT | Qwen3-4B | 2×3090 | verl sft_trainer
 # 改编自 verl/examples/sft/gsm8k/run_qwen3_8b_fsdp.sh
 # 用法（服务器）：
-#   EXP=sft_standard_cot DATA_DIR=/data/liujiachen/datasets/distill/standard_cot bash train/sft.sh
+#   EXP=sft_standard_cot DATA_DIR=$DATA/distill/standard_cot bash train/sft.sh
 #   TEST=1 EXP=... DATA_DIR=... bash train/sft.sh      # 极小配置先验证不 OOM、依赖齐全
 #
 # ── 加速（本机 glibc 2.31）──
@@ -20,10 +20,10 @@ set -xeuo pipefail
 # 抗碎片：长序列训练易产生显存碎片，expandable_segments 减少碎片型 OOM（PYTORCH_ALLOC_CONF 为当前名，替代已弃用的 PYTORCH_CUDA_ALLOC_CONF）
 export PYTORCH_ALLOC_CONF="${PYTORCH_ALLOC_CONF:-expandable_segments:True}"
 
-MODEL_PATH=${MODEL_PATH:-/data/liujiachen/models/Qwen3-4B}
-DATA_DIR=${DATA_DIR:-/data/liujiachen/datasets/distill/standard_cot}
+MODEL_PATH=${MODEL_PATH:-$MODELS/Qwen3-4B}
+DATA_DIR=${DATA_DIR:-$DATA/distill/standard_cot}
 EXP=${EXP:-sft_standard_cot}
-SAVE=${SAVE:-/data/liujiachen/checkpoints/$EXP}
+SAVE=${SAVE:-$CKPT/$EXP}   # CKPT 由 env.sh 继承（export）
 NPROC=${NPROC:-2}
 SP_SIZE=${SP_SIZE:-1}       # 2×3090 先不开序列并行；长 CoT 显存紧可设 2
 USE_PEFT=${USE_PEFT:-1}     # 默认 LoRA（本项目实跑值；2×3090 上 4B 全参装不下）。大显存机走全参改 0
@@ -68,7 +68,7 @@ mem_args=(engine.model_dtype="$MODEL_DTYPE" model.enable_activation_offload="$AC
 #   当作"历史思考"剥除，使"<think>推理</think>解答"被训成"只有解答"，模型学成不思考、难题上退化(实测 pass@1 约 2%)。
 #   默认用整段渲染的自定义数据集(train/whole_conv_sft_dataset.py)保留 <think>。CUSTOM_DS=0 退回 verl 原生实现。
 CUSTOM_DS=${CUSTOM_DS:-1}
-CUSTOM_DS_PATH=${CUSTOM_DS_PATH:-/data/liujiachen/verl/qwen3_4b_distill/train/whole_conv_sft_dataset.py}
+CUSTOM_DS_PATH=${CUSTOM_DS_PATH:-$PROJ/train/whole_conv_sft_dataset.py}
 ds_args=()
 [ "$CUSTOM_DS" = "1" ] && ds_args=(data.custom_cls.path="$CUSTOM_DS_PATH" data.custom_cls.name=WholeConvSFTDataset)
 

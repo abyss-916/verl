@@ -4,8 +4,8 @@
 thinking 开启时先思考再输出字母，故 max_new 放大并统计 truncated_rate（截断会丢失字母而判错，分数虚低）。
 
 用法：
-  python eval_mc.py --model /data/liujiachen/models/Qwen3-4B \
-    --data /data/liujiachen/datasets/mmlu_pro/test.parquet --n 1 --out $LOGS/eval/mmlu_pro_base
+  python eval_mc.py --model $MODELS/Qwen3-4B \
+    --data $DATA/mmlu_pro/test.parquet --n 1 --out $LOGS/eval/mmlu_pro_base
   # MMLU-Pro 约 12k 题、thinking 输出长，可两卡交错分片：各卡 --shard 0/1 --num_shards 2，再用 merge_shards.py 合并
 """
 

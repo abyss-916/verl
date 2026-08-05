@@ -119,7 +119,7 @@ def main():
 
     from transformers import AutoTokenizer
 
-    tok_path = args.tokenizer or args.model or "/data/liujiachen/models/Qwen3-4B"
+    tok_path = args.tokenizer or args.model or "Qwen/Qwen3-4B"
     tok = AutoTokenizer.from_pretrained(tok_path, trust_remote_code=True)
 
     result = compute_length_diversity(rows, tok)

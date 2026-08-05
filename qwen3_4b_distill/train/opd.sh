@@ -5,13 +5,13 @@
 #    先以 TEST=1 起；若 OOM 则退回 train/sft.sh（off-policy 序列蒸馏），将 OPD 作为尝试与分析写入报告。
 set -xeuo pipefail
 
-STUDENT_MODEL=${STUDENT_MODEL:-/data/liujiachen/models/Qwen3-4B}
-TEACHER_MODEL=${TEACHER_MODEL:-/data/liujiachen/models/Qwen3-8B}
+STUDENT_MODEL=${STUDENT_MODEL:-$MODELS/Qwen3-4B}
+TEACHER_MODEL=${TEACHER_MODEL:-$MODELS/Qwen3-8B}
 # 同 grpo.sh：训练 prompt 用 MATH 种子，olymmath 为 held-out 评测集，仅做 VAL 监控，不进训练。
-TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/math_seed}
-VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}
+TRAIN_DIR=${TRAIN_DIR:-$DATA/math_seed}
+VAL_DIR=${VAL_DIR:-$DATA/olymmath}
 EXP=${EXP:-opd_4b_from_8b}
-CKPT=${CKPT:-/data/liujiachen/checkpoints}
+CKPT=${CKPT:-/data/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
 
 NGPUS=${NGPUS:-2}                       # student/trainer 资源
