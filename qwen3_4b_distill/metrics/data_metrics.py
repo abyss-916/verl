@@ -1,9 +1,8 @@
 """蒸馏数据度量（student 视角）。
 
 度量：样本数 / 长度(token) / 多样性(distinct-1,2) / PPL / IFD。
-PPL、IFD 以 student 基座（Qwen3-4B）计算，用于判断数据是否适合 4B 学生模型学习。
-IFD = L(answer|question) / L(answer)：值越高表示问题对预测答案的帮助越小，即越难跟随、信息量越大；
-IFD>=1 视为噪声或问答错配（定义见 Cherry LLM, arXiv:2308.12032）。
+PPL、IFD 以 student 基座（Qwen3-4B）计算。
+IFD = L(answer|question) / L(answer)，IFD>=1 视为噪声或问答错配。
 
 用法：
   python data_metrics.py --data <train.parquet> --model <student_base> --limit 500 --out metrics.json
@@ -83,8 +82,7 @@ def compute_ppl_ifd(rows, model_path, limit, device="cuda", max_len=8192):
         if not a:
             continue
         q_ids, a_ids = tok.encode(q), tok.encode(a)
-        # 超长样本跳过：单条前向的 logits 形状为 [seq × vocab(≈15万)]，16K token 约占 5G，24G 显存会 OOM。
-        # IFD/PPL 为整体分布度量，跳过极少数超长样本不影响结论；跳过数量记入 json。
+        # 超长样本跳过，防 OOM
         if len(q_ids) + len(a_ids) > max_len:
             n_skip += 1
             continue

@@ -1,11 +1,11 @@
 """数学数据集 → verl RL parquet。改编自 verl/examples/data_preprocess/math_dataset.py。
 
-区分两种角色，训练集与评测集严格分离以防泄漏：
+区分两种角色，训练集与评测集分离：
   - SEED（训练/蒸馏种子/GRPO prompt）：数学训练集，如 Omni-MATH、MATH-lighteval train。
   - EVAL（held-out 评测）：如 OlymMATH，不进训练。
 
 答案自适应：OlymMATH 用 `answer` 列；MATH 从 `solution` 的 \boxed 抽取。
-额外把 level/type/subject 存入 extra_info，供后续按难度/领域做切片分析。
+额外把 level/type/subject 存入 extra_info。
 
 用法：
   # 种子（MATH train）
@@ -27,7 +27,7 @@ import datasets
 INSTRUCTION = "Let's think step by step and output the final answer within \\boxed{}."
 
 Q_KEYS = ["problem", "question", "prompt", "query", "Problem", "Question"]
-A_KEYS = ["answer", "final_answer", "gold", "solution", "Answer", "Solution"]  # solution 置于末尾：MATH 无 answer 列时兜底；含大写键以兼容 AIME_2024 等
+A_KEYS = ["answer", "final_answer", "gold", "solution", "Answer", "Solution"]  # solution 置于末尾作兜底，含大写键兼容 AIME_2024 等
 META_KEYS = ["level", "type", "subject", "unique_id"]
 
 
@@ -78,8 +78,7 @@ def make_map_fn(split, data_source):
 
 def _load_split(source, hf, subset, split):
     """加载单个 split → HF Dataset。
-    source=hf：走 datasets（HF/hf-mirror）；source=modelscope：走 MsDataset；
-    source=local：从本地目录按文件名匹配 parquet 加载，可绕开脚本型数据集与多文件加载超时。
+    source=hf：走 datasets（HF/hf-mirror）；source=modelscope：走 MsDataset；source=local：从本地目录读 parquet。
     hf 支持逗号分隔的多个候选 id（modelscope 时逐个尝试，任一成功即返回）。
     """
     if source == "local":
@@ -90,7 +89,7 @@ def _load_split(source, hf, subset, split):
             raise FileNotFoundError(f"本地无 {split} 的 parquet: {hf}")
         return datasets.load_dataset("parquet", data_files=files)["train"]
     if source == "modelscope":
-        # 用 modelscope CLI 整仓下载 parquet 到本地，再读本地 parquet：不执行脚本，规避 datasets 5.0 的脚本加载禁令。
+        # 用 modelscope CLI 整仓下载 parquet 到本地，再读本地 parquet
         import glob as _glob
         import subprocess
 
@@ -101,7 +100,7 @@ def _load_split(source, hf, subset, split):
             pat = os.path.join(local, "**", f"*{split}*.parquet")
             try:
                 files = sorted(_glob.glob(pat, recursive=True))
-                if not files:  # 尚未下过则整仓拉取一次(train/test 一起下)，后续 split 命中本地缓存
+                if not files:  # 尚未下过则整仓拉取一次
                     subprocess.run(["modelscope", "download", "--dataset", hid, "--local_dir", local], check=True)
                     files = sorted(_glob.glob(pat, recursive=True))
                 if not files:
@@ -114,7 +113,7 @@ def _load_split(source, hf, subset, split):
 
 
 def _load_split_retry(source, hf, subset, split, tries=4):
-    """带重试（网络抖动）；split 确实不存在则立刻抛出不重试。"""
+    """带重试；split 确实不存在则立刻抛出不重试。"""
     last = None
     for i in range(tries):
         try:
@@ -159,15 +158,14 @@ def main():
     os.makedirs(out, exist_ok=True)
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
 
-    # 只写实际加载到的 split：eval-only 数据集（如 OlymMATH 仅有 test）不把 test 复制成 train.parquet，
-    # 否则会被当作蒸馏种子，导致评测集泄漏（蒸出的 CoT 训练到 held-out 题目上）。
+    # 只写实际加载到的 split，不把 test 复制成 train.parquet
     for name, d0 in [("train", train_ds), ("test", test_ds)]:
         if d0 is None:
             print(f"[skip] 无 {name} split → 不写 {name}.parquet（不拿另一 split 顶替，避免泄漏陷阱）", flush=True)
             continue
         d = d0.map(make_map_fn(name, a.data_source), with_indices=True)
         n0 = len(d)
-        # 丢弃无答案行：to_answer(None) 使 ground_truth 变成字符串 "None"，judge 恒判 0（拉低 eval 分数 / GRPO 该 prompt 永远 0 reward）
+        # 丢弃无答案行
         d = d.filter(lambda ex: ex["reward_model"]["ground_truth"] not in ("None", "", "none"))
         if len(d) != n0:
             print(f"[warn] {name}: 丢弃 {n0 - len(d)} 无答案行", flush=True)

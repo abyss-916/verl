@@ -1,11 +1,8 @@
 """LiveCodeBench → verl RL parquet（供 base eval / GRPO）。
+只负责整理成 verl parquet（prompt + 测试用例）；执行单测的判定由 GRPO/eval 的 sandbox_fusion / prime_code 完成。
 
-代码判定需执行单测：GRPO/eval 走 verl 的 sandbox_fusion / prime_code（见 train/grpo.sh 注释），
-或用 LiveCodeBench 官方 harness。本脚本只负责整理成 verl parquet（prompt + 测试用例）。
-
-数据源说明：livecodebench/code_generation_lite 为脚本型数据集，datasets 5.0 已禁用脚本加载，
---source hf 会报 "Dataset scripts are no longer supported"。需先把 LCB parquet 抓到本地
-（modelscope 镜像 / 官方 repo release / HF parquet 分支），再用 --source local 指向该目录。
+数据源：脚本型数据集 datasets 5.0 已禁用，需先把 LCB parquet 抓到本地
+（modelscope 镜像 / 官方 release / HF parquet 分支），再用 --source local 指向该目录。
 
 用法：
   # 本地 parquet 目录
@@ -38,8 +35,7 @@ FUNC_TMPL = (
 
 
 def _decode_private(raw):
-    """LCB private_test_cases 解码：优先直接 json，否则 base64→zlib→pickle→json（LCB 官方编码）。
-    pickle.loads 仅用于官方 LCB 数据（可信来源），且只在数据准备期执行一次，不在评测热路径。"""
+    """LCB private_test_cases 解码：优先直接 json，否则 base64→zlib→pickle→json。"""
     if not raw:
         return []
     try:
@@ -51,10 +47,7 @@ def _decode_private(raw):
 def _to_prime(ex):
     """LCB 一题的 public+private 测试 → prime_code 期望格式。
     inputs[i]/outputs[i] 一律用 LCB 的 input/output 原始字符串，由 prime_code 内部按类型自解析：
-      有 fn_name → call_based（对 input 每行 json.loads 成参数、output json.loads 成期望返回）；
-      无 fn_name → standard_input（input 原样作 stdin、output 作期望 stdout）。
-    不要在此预解析 functional 的参数：prime_code（testing_util 222-223）会再 json.loads 一次，
-    预解析后它对 list 调用 .split('\\n') 会类型错误，导致判分全为 0。"""
+      有 fn_name → call_based；无 fn_name → standard_input。"""
     pub = json.loads(ex["public_test_cases"]) if ex.get("public_test_cases") else []
     tests = list(pub) + list(_decode_private(ex.get("private_test_cases")))
     functional = any(t.get("testtype") == "functional" for t in tests)
@@ -97,8 +90,7 @@ def main():
     ap.add_argument("--version", default="release_v5", help="LiveCodeBench version_tag（仅 --source hf）")
     ap.add_argument("--out", default="$DATA/livecodebench")
     ap.add_argument("--data_source", default="livecodebench")
-    # LCB 防污染时间窗（按 contest_date 过滤）：Qwen3 技术报告评 LCB v5 用 2024-08-01~2025-02-01，
-    # 与之对齐以保证可比性并防污染。留空则不过滤（全量）。
+    # LCB 防污染时间窗（按 contest_date 过滤）；留空则不过滤（全量）
     ap.add_argument("--date_start", default=None, help="只留 contest_date >= 此 (YYYY-MM-DD)")
     ap.add_argument("--date_end", default=None, help="只留 contest_date <= 此 (YYYY-MM-DD)")
     a = ap.parse_args()
@@ -114,7 +106,6 @@ def main():
         else:
             raise SystemExit(f"[fatal] 本地无 parquet/jsonl：{root}（先把 LCB 数据抓到此目录）")
     else:
-        # datasets 5.0 对脚本型数据集会抛 "Dataset scripts are no longer supported"
         ds = datasets.load_dataset(a.hf, version_tag=a.version, trust_remote_code=True)
     split = "test" if "test" in ds else list(ds.keys())[0]
     print("splits:", list(ds.keys()), "| columns:", ds[split].column_names, flush=True)
@@ -129,7 +120,7 @@ def main():
             print(f"去重: {n0} -> {len(src)}（按 question_id）", flush=True)
 
     if a.date_start or a.date_end:  # 防污染时间窗
-        if "contest_date" not in src.column_names:  # fail-closed：缺少日期列时报错，不输出未过滤(可能被污染)的全量
+        if "contest_date" not in src.column_names:  # fail-closed：缺少日期列时报错
             raise SystemExit(f"[fatal] 指定了防污染时间窗，但数据无 contest_date 列（实际列: {src.column_names}）——"
                              f"拒绝输出未过滤的全量。请确认日期列名或去掉 --date_start/--date_end。")
         s, e = a.date_start, a.date_end
@@ -146,7 +137,7 @@ def main():
     os.makedirs(out, exist_ok=True)
     d = src.map(lambda ex, i: build_row(ex, i, "test", a.data_source), with_indices=True)
     n0 = len(d)
-    # 丢弃 0 测试用例的题：prime_code 对空测试 all([])==True 会判满分，虚高 pass@1 / GRPO 误给 reward
+    # 丢弃 0 测试用例的题
     d = d.filter(lambda ex: ex["extra_info"]["n_tests"] > 0)
     if len(d) != n0:
         print(f"[warn] 丢弃 {n0 - len(d)} 道 0 测试用例的题（避免假满分）", flush=True)

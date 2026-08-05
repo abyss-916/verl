@@ -1,15 +1,12 @@
-"""LiveCodeBench 等代码集的可验证奖励，复用 verl 的代码判分器（基于 LiveCodeBench 的 prime_code）。
-- 默认使用 `prime_code`（APPS/LCB 式本地执行，带超时，无需 sandbox 服务）。
-- 若设置环境变量 `SANDBOX_FUSION_URL`，改用 `sandbox_fusion`（沙箱执行，隔离性更好）。
+"""LiveCodeBench 等代码集的可验证奖励，复用 verl 的 prime_code 判分器。
+- 默认 `prime_code`（本地执行，带超时，无需 sandbox 服务）。
+- 设 `SANDBOX_FUSION_URL` 则改用 `sandbox_fusion`（沙箱执行）。
 GRPO/eval 挂载：custom_reward_function.path=<repo>/qwen3_4b_distill/reward/code_reward.py
 
-ground_truth 由 `prepare_code.py` 预先转成 prime_code 期望的格式（json 字符串）：
-    stdin      : {"inputs":[输入串,...], "outputs":[期望输出串,...]}
-    functional : {"inputs":[[参数,...],...], "outputs":[期望返回,...], "fn_name":"方法名"}
-故本文件不再猜测格式，直接解析后交给执行器。
-
-安全：prime_code 在本地执行模型生成的代码，大规模运行前建议启动 sandbox 并设置
-`SANDBOX_FUSION_URL`；小规模验证或评测可直接使用 prime_code（自带 signal 超时）。
+ground_truth 由 `prepare_code.py` 预转为 prime_code 格式（json 串）：
+    stdin      : {"inputs":[...], "outputs":[...]}
+    functional : {"inputs":[[...],...], "outputs":[...], "fn_name":"..."}
+安全：prime_code 本地执行模型代码，大规模运行前建议起 sandbox 并设 `SANDBOX_FUSION_URL`。
 """
 
 import json
@@ -17,10 +14,7 @@ import os
 import sys
 import types
 
-# pyext 兼容垫片（py3.12）：
-# verl 的 prime_code/testing_util.py 顶部有 `from pyext import RuntimeModule`；pyext 0.7 依赖
-# py3.11 已移除的 inspect.getargspec，无法在 py3.12 安装。此处用标准库提供等价的 RuntimeModule
-# （从代码串构建模块），避免依赖 pyext，也不改动 verl 核心。prime_code 仅用到 from_string。
+# pyext 兼容垫片（py3.12）
 if "pyext" not in sys.modules:
     _pyext = types.ModuleType("pyext")
 

@@ -1,13 +1,12 @@
 """数学评测（base / SFT / GRPO 通用）：pass@1、avg@k、pass@k。
-- thinking 模式默认开启：Qwen3 关闭 thinking 会低估推理类任务，--no_thinking 可关闭。
+- thinking 模式默认开启，--no_thinking 可关闭。
 - 判定复用 verl 内置 math-verify。
-- 输出逐题 jsonl 与汇总 json，便于对齐与后续归因。
+- 输出逐题 jsonl 与汇总 json。
 
 用法：
   python eval_math.py --model $MODELS/Qwen3-4B-Base \
     --data $DATA/olymmath/test.parquet \
     --n 8 --out $LOGS/eval/olymmath_base
-  # avg@64：AIME 类小规模测试集降低方差
 """
 
 import argparse
@@ -21,14 +20,14 @@ import pandas as pd
 
 
 def pass_at_k(n, c, k):
-    """无偏 pass@k 估计（Chen et al. 2021）：n 个样本里 c 个正确。"""
+    """无偏 pass@k 估计：n 个样本里 c 个正确。"""
     if n - c < k:
         return 1.0
     return 1.0 - math.prod((n - c - i) / (n - i) for i in range(k))
 
 
 def extract_boxed(text):
-    """取最后一个 \\boxed{...}；用括号配平支持任意层嵌套（如 \\frac{a}{\\sqrt{2}} 的双层嵌套，正则匹配会漏）。"""
+    """取最后一个 \\boxed{...}；括号配平支持任意层嵌套。"""
     key = "\\boxed{"
     i = text.rfind(key)
     if i == -1:
@@ -53,14 +52,11 @@ def main():
     ap.add_argument("--temp", type=float, default=0.6)   # thinking 模式默认采样参数
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--top_k", type=int, default=20)
-    # 38912 为 Qwen3 对数学/编程竞赛类 benchmark 的推荐输出长度，加 2048 prompt 后正好达到
-    # max_position_embeddings=40960；再高需开启 YaRN，会改变模型行为、破坏与论文锚点的可比性。
-    # 不宜调小：截断样本会判错；实测 base 在 32768 仍约 15% 触顶、8192 时约 96%（分数虚低）。
+    # 默认 38912，加 2048 prompt 达到 max_position_embeddings=40960
     ap.add_argument("--max_new", type=int, default=38912)
     ap.add_argument("--no_thinking", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
-    # 多卡分片：同一份 data 交错切成 num_shards 份（df.iloc[shard::num_shards]，难度自然均衡），
-    # 每张卡跑一片、各自 --out，最后用 merge_shards.py 合成一份总 summary。
+    # 多卡分片：同一份 data 交错切成 num_shards 份，各卡一片、各自 --out，再用 merge_shards.py 合并
     ap.add_argument("--shard", type=int, default=0, help="分片编号，0-based")
     ap.add_argument("--num_shards", type=int, default=1, help="总分片数；=1 即不分片")
     a = ap.parse_args()
@@ -102,13 +98,12 @@ def main():
     with open(os.path.join(out, "per_question.jsonl"), "w") as f:
         for (q, gt, meta), o in zip(items, outs):
             corr = [1 if compute_score(s.text, str(gt)) >= 1.0 else 0 for s in o.outputs]
-            # finish_reason=="length" 表示达到生成上限被截断；截断样本会判错，故逐条统计，
-            # 使 summary 附带截断率，便于判断分数是否受生成预算限制而虚低。
+            # finish_reason=="length" 表示截断，逐条统计
             trunc = [1 if s.finish_reason == "length" else 0 for s in o.outputs]
             toks = [len(s.token_ids) for s in o.outputs]
             nc, nn = sum(corr), len(corr)
             avg, pk = nc / nn, pass_at_k(nn, nc, k)
-            # cons@n（self-consistency 多数投票，对齐 OlymMATH 论文 Cons）：取 \boxed 答案的众数判其是否正确
+            # cons@n（多数投票）：取 \boxed 答案的众数判其是否正确
             boxeds = [b for b in (extract_boxed(s.text) for s in o.outputs) if b]
             cons = 1 if boxeds and compute_score("\\boxed{" + Counter(boxeds).most_common(1)[0][0] + "}",
                                                  str(gt)) >= 1.0 else 0

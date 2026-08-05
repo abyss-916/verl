@@ -1,16 +1,10 @@
 """整段渲染的单轮 SFT 数据集，修正 Qwen3 `<think>` 在 verl 逐轮分词中被剥除的问题。
 
-背景：verl 默认 `MultiTurnSFTDataset` 对每条 assistant 消息单独套 chat 模板
-(`apply_chat_template(messages=[该条], ...)`)。Qwen3 模板会把单条 assistant 内的
-`<think>…</think>` 当作"历史思考"剥除（整段渲染 `[user, assistant]` 则保留，已实测）。
-这样"<think>推理</think>解答"的蒸馏目标被训成"只有解答"，模型学成不思考、在难题上退化
-(standard_cot SFT 后 OlymMATH pass@1 15.75%→2.13%，输出 22.9K→1.6K token、0/100 含 `<think>`)。
-
-本类：对整段对话 `apply_chat_template`（保留 `<think>`）得到 input_ids；
+对整段对话 `apply_chat_template`（保留 `<think>`）得到 input_ids；
 再对 prompt 部分（`messages[:-1]` + 生成提示）单独渲染，确定 loss 边界，仅对 assistant 回复计 loss。
-prompt 须是 full 的前缀，否则 fail-loud（不静默训练在错误边界上）。
+prompt 须是 full 的前缀，否则 fail-loud。
 
-- 仅支持以 assistant 结尾的对话（本课题蒸馏数据均为单轮 user→assistant）。
+- 仅支持以 assistant 结尾的对话。
 - 不改 verl 核心；通过 `data.custom_cls.path=<本文件> data.custom_cls.name=WholeConvSFTDataset` 挂载。
 - padding/truncation 分支与父类 `__getitem__` 保持一致，返回相同结构。
 """
@@ -33,8 +27,7 @@ class WholeConvSFTDataset(MultiTurnSFTDataset):
             f"{[m.get('role') for m in messages]}"
         )
 
-        # enable_thinking：仅当明确为 bool 才透传；'none'/None/其它一律不传，用模板默认
-        # （整段渲染默认即保留 <think>，已实测；且 bool('none')==True，须避免误传）。
+        # enable_thinking：仅当明确为 bool 才透传，否则用模板默认
         et = self.enable_thinking[item] if self.enable_thinking is not None else self.enable_thinking_default
         kw = {**self.apply_chat_template_kwargs}
         if isinstance(et, bool):

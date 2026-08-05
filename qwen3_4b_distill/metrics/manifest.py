@@ -1,7 +1,5 @@
 """汇总单个实验的完整记录 → manifest.md + manifest.json。
-满足课题原文 §1："每个实验至少要记录 dataset/model/teacher/蒸馏方法/采样参数/filter/数据统计/
-base-SFT-GRPO 结果/论文对齐"——把散落的 gen_stats.json(造数据侧) + eval summary.json(评测侧) +
-手填元数据(数据集/教师/学生/论文锚点/阶段/备注) 聚成一份可追溯记录。
+把 gen_stats.json(造数据侧) + eval summary.json(评测侧) + 手填元数据(数据集/教师/学生/论文锚点/阶段/备注) 聚成一份可追溯记录。
 
 用法（服务器）：
   python metrics/manifest.py --name sft_standard_cot --out "$LOGS/manifests" \

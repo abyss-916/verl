@@ -1,7 +1,5 @@
-"""合并 eval_math.py 的多卡分片结果，产出与单卡跑等价的一份 per_question.jsonl + summary.json。
-
-分片只是把同一份题目按 df.iloc[shard::num_shards] 交错切开分给不同 GPU，
-每题的采样/判定完全独立，所以合并 = 把逐题记录并起来重新求平均，指标与单卡一致。
+"""合并 eval_math.py 的多卡分片结果，产出一份 per_question.jsonl + summary.json。
+合并 = 把各分片逐题记录并起来重新求平均。
 
 用法：
   python merge_shards.py --shards $LOGS/eval/olymmath_base_s0 $LOGS/eval/olymmath_base_s1 \
@@ -27,13 +25,13 @@ def main():
         with open(os.path.join(d, "per_question.jsonl")) as f:
             for line in f:
                 r = json.loads(line)
-                if r["question"] in seen:      # 分片本应互斥；重复只可能来自误配，跳过并告警
+                if r["question"] in seen:      # 分片本应互斥，重复则跳过并告警
                     print(f"⚠️ 跳过重复题目（{d}）")
                     continue
                 seen.add(r["question"])
                 rows.append(r)
 
-    # 分片间采样配置必须一致，否则合出来的平均没有意义
+    # 分片间采样配置必须一致
     for key in ("model", "data", "n_samples", "thinking", "max_new"):
         vals = {json.dumps(m.get(key), ensure_ascii=False) for m in metas}
         if len(vals) > 1:
@@ -51,7 +49,7 @@ def main():
     m = metas[0]
     summary = {
         "model": m["model"], "data": m["data"], "n_samples": m["n_samples"],
-        "thinking": m.get("thinking"), "num_questions": N,   # code summary 可能无 thinking 字段 → .get 容错，令 code 分片也能合并
+        "thinking": m.get("thinking"), "num_questions": N,   # code summary 可能无 thinking 字段
         "pass@1 (avg@n)": round(sum(r["avg"] for r in rows) / N, 4),
         pk_key: round(sum(r[pk_key] for r in rows) / N, 4),
         "max_new": m["max_new"],
@@ -66,7 +64,7 @@ def main():
 
         from verl.utils.reward_score.math_verify import compute_score as _cs
 
-        def _boxed(t):                              # 括号配平，支持任意层嵌套（与 eval_math.extract_boxed 一致）
+        def _boxed(t):                              # 括号配平，支持任意层嵌套
             i = t.rfind("\\boxed{")
             if i == -1:
                 return None

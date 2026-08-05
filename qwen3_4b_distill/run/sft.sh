@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # SFT 一条龙：训练 → merge 折叠 → held-out 评测，启动一次跑完（全程 conda verl 环境）。
-# 用法（先 conda activate verl；首次可先 TEST=1 bash train/sft.sh 验证不 OOM）：
+# 用法（先 conda activate verl；首次可 TEST=1 bash train/sft.sh 验证不 OOM）：
 #   METHOD=omni_standard_cot setsid bash run/sft.sh > $LOGS/run/sft_omni_standard_cot.log 2>&1 < /dev/null &
-# 可覆盖：METHOD（方法名）/ DATA_DIR（蒸馏数据目录，缺省 $DATA/distill/<METHOD>）/ N（eval 采样，缺省 4）；
-#   train/sft.sh 的超参 env 也会透传。
+# 可覆盖：METHOD / DATA_DIR（缺省 $DATA/distill/<METHOD>）/ N（eval 采样，缺省 4）；train/sft.sh 超参 env 也透传。
 set -o pipefail
 source "$(dirname "$0")/env.sh"
 

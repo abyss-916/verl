@@ -1,31 +1,25 @@
 #!/usr/bin/env bash
-# 折叠 LoRA 为完整 HF 模型（供 vLLM eval），可复现。
-#   verl model_merger 对 LoRA ckpt 只抽出 base + lora_adapter/（peft 格式），不折叠；
-#   本脚本第 2 步用 peft merge_and_unload 把 adapter 折进权重，得到 $CKPT/sft_<法>_merged。
-#   第 3 步自检：merged 与 base 逐张量相对差，rel 足够大才说明 LoRA 真正学到（LR 过小欠拟合时
-#   merged≈base、rel~1e-4，eval 会假性等于 base；此自检用于拦截该情形，阈值见第 3 步）。
-#
-# 用法（服务器，先 source env.sh；CPU 即可，无需 GPU）：
-#   METHODS="omni_standard_cot omni_reverse omni_question_aug" bash run/merge.sh
-# 单法：METHODS="omni_standard_cot" bash run/merge.sh
-set -uo pipefail   # 不加 -e：某法失败时跳过，不影响其余
+# 折叠 LoRA 为完整 HF 模型（供 vLLM eval）。可复现，CPU 即可。
+# 用法：METHODS="omni_standard_cot omni_reverse omni_question_aug" bash run/merge.sh
+#   单法 METHODS="omni_standard_cot"；GRPO 传 PREFIX=grpo_ + BASE=$CKPT/sft_<法>_merged
+set -uo pipefail   # 不加 -e：某法失败时跳过
 source "$(dirname "$0")/env.sh"
 
-BASE=${BASE:-$MODELS/Qwen3-4B}                 # LoRA 冻结 base，故 base=原始 student。GRPO 叠在 SFT-merged 上时传 BASE=$CKPT/sft_<法>_merged，使末尾自检度量的是 GRPO 增量而非 SFT+GRPO 合量
-PREFIX=${PREFIX-sft_}                           # ckpt 目录前缀（用 - 而非 :- 使空串也生效，非仅未设时）：SFT=sft_（默认）；GRPO 传 PREFIX=grpo_ + METHODS=omni_<法>（或 PREFIX= 空 + METHODS=grpo_<法>）
+BASE=${BASE:-$MODELS/Qwen3-4B}                 # LoRA 的 base；GRPO 叠在 SFT-merged 上时传 BASE=$CKPT/sft_<法>_merged
+PREFIX=${PREFIX-sft_}                           # ckpt 目录前缀：SFT=sft_（默认）；GRPO 传 PREFIX=grpo_
 METHODS=${METHODS:-"omni_standard_cot omni_reverse omni_question_aug"}
 
 for M in $METHODS; do
   CKPT_DIR="$CKPT/${PREFIX}$M"
   STEP=$(ls -d "$CKPT_DIR"/global_step_* 2>/dev/null | sort -V | tail -1)
   if [ -z "$STEP" ]; then echo "!! [$M] 无 global_step 于 $CKPT_DIR，跳过"; continue; fi
-  # PPO/GRPO 按角色分目录：ckpt 在 $STEP/actor/（含 huggingface/config.json + lora_adapter）；SFT 单模型直接在 $STEP/。
+  # GRPO ckpt 在 $STEP/actor/，SFT 直接在 $STEP/
   SRC="$STEP"; [ -d "$STEP/actor" ] && SRC="$STEP/actor"
   VM="$CKPT/${PREFIX}${M}_vmerge"; OUT="$CKPT/${PREFIX}${M}_merged"
   echo "==== [$M] src=$SRC -> $OUT ===="
   rm -rf "$VM" "$OUT"
 
-  # 1) verl 抽 base + lora_adapter（peft 格式）。若报分布式相关错，改用：torchrun --nproc_per_node 1 -m verl.model_merger ...
+  # 1) verl 抽 base + lora_adapter（peft 格式）
   python -m verl.model_merger merge --backend fsdp --local_dir "$SRC" --target_dir "$VM" \
     || torchrun --nproc_per_node 1 -m verl.model_merger merge --backend fsdp --local_dir "$SRC" --target_dir "$VM" \
     || { echo "!! [$M] model_merger（python 与 torchrun 兜底均）失败，跳过"; continue; }
@@ -45,9 +39,7 @@ AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained(out)
 print("[merge] merged ->", out)
 PY
 
-  # 3) 自检：merged vs base 逐张量相对差（rel≳1e-3 表示学到；~1e-4 表示未训动，须查 LR/数据）
-  #    阈值取 1e-3：rank-32 LoRA 低秩修正下单张量相对变化约在 1e-3 量级（Omni 三法实测 4–7e-3），
-  #    初设的 1e-2 对 LoRA 偏严、会误报"未训动"。
+  # 3) 自检：merged vs base 逐张量相对差（rel≳1e-3 表示学到，~1e-4 未训动）
   python - "$BASE" "$OUT" <<'PY'
 import sys, glob, os, statistics as S
 from safetensors import safe_open

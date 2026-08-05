@@ -1,12 +1,12 @@
 """选择题评测（MMLU-Pro / SuperGPQA）：vLLM 生成 → 抽取答案字母 → pass@1(avg@n)/pass@k/cons@n（thinking 模式）。
 抽取顺序：\\boxed{X} > "answer is X" > 文中最后一个孤立大写字母。
-与 eval_math/eval_code 结构一致：per_question 含 question/avg/pass@k 及切片字段，供 slice_eval 归因与 merge_shards 分片合并使用。
-thinking 开启时先思考再输出字母，故 max_new 放大并统计 truncated_rate（截断会丢失字母而判错，分数虚低）。
+per_question 含 question/avg/pass@k 及切片字段，供 slice_eval 与 merge_shards 使用。
+thinking 开启时先思考再输出字母，故 max_new 放大并统计 truncated_rate。
 
 用法：
   python eval_mc.py --model $MODELS/Qwen3-4B \
     --data $DATA/mmlu_pro/test.parquet --n 1 --out $LOGS/eval/mmlu_pro_base
-  # MMLU-Pro 约 12k 题、thinking 输出长，可两卡交错分片：各卡 --shard 0/1 --num_shards 2，再用 merge_shards.py 合并
+  # 大数据集可两卡交错分片：各卡 --shard 0/1 --num_shards 2，再用 merge_shards.py 合并
 """
 
 import argparse
@@ -18,7 +18,7 @@ from collections import Counter
 
 
 def pass_at_k(n, c, k):
-    """无偏 pass@k 估计（Chen et al. 2021）：n 个样本里 c 个正确。"""
+    """无偏 pass@k 估计：n 个样本里 c 个正确。"""
     if n - c < k:
         return 1.0
     return 1.0 - math.prod((n - c - i) / (n - i) for i in range(k))
@@ -79,7 +79,7 @@ def main():
     ck = {} if not a.no_thinking else {"enable_thinking": False}
     prompts = [tok.apply_chat_template([{"role": "user", "content": q}], tokenize=False, add_generation_prompt=True, **ck)
                for q, _, _ in items]
-    # max_model_len 按最长题面动态确定：保证每题都留足 max_new 的生成预算，避免长题面压缩预算导致截断（不可比）
+    # max_model_len 按最长题面动态确定，保证每题留足 max_new 生成预算
     max_prompt = max((len(tok(p)["input_ids"]) for p in prompts), default=0)
     max_model_len = min(40960, a.max_new + max_prompt + 256)
     llm = LLM(model=a.model, trust_remote_code=True, tensor_parallel_size=a.tp,
@@ -97,7 +97,7 @@ def main():
             toks = [len(c.token_ids) for c in o.outputs]
             nc, nn = sum(corr), len(corr)
             avg, pk = nc / nn, pass_at_k(nn, nc, k)
-            # cons@n（多数投票，对齐 OlymMATH Cons）：取众数字母判其是否正确
+            # cons@n（多数投票）：取众数字母判其是否正确
             votes = [p for p in preds if p]
             cons = 1 if votes and Counter(votes).most_common(1)[0][0] == gt else 0
             sum_avg += avg

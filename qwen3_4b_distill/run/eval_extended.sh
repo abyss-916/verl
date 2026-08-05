@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# 扩展 benchmark base eval（全部 held-out）：
-#   code = LiveCodeBench（需测试用例格式核对，见 reward/code_reward.py）
-#   mc   = MMLU-Pro / SuperGPQA（科学推理，开放替代 GPQA）
-#   math = AIME（须 avg@k；设了 $AIME_HF 才跑）
-# 规模较大，用 LIMIT 控制采样量。首轮先评 base，训练后再评 SFT/GRPO ckpt。
+# 扩展 benchmark base eval（全部 held-out）：code=LiveCodeBench / mc=MMLU-Pro+SuperGPQA / math=AIME。
+# 用法：bash run/eval_extended.sh；用 LIMIT 控采样量，可覆盖 MODEL/CODE_LIMIT/AIME_N。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
@@ -27,7 +24,7 @@ python "$PROJ/data_preprocess/prepare_mc.py" --hf "$SUPERGPQA_HF" --subset defau
 python "$PROJ/eval/eval_mc.py" --model "$M" --data "$DATA/supergpqa/test.parquet" \
   --n 1 --limit "$LIM" --out "$LOGS/eval/supergpqa_base"
 
-# ── math：AIME（设了 AIME_HF 才跑；30 题须 avg@k）──
+# ── math：AIME（设了 AIME_HF 才跑）──
 if [ -n "${AIME_HF:-}" ]; then
   python "$PROJ/data_preprocess/prepare_math.py" --hf "$AIME_HF" --subset "${AIME_SUBSET:-}" \
     --out "$DATA/aime" --data_source aime

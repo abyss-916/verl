@@ -1,13 +1,10 @@
 """从一次 eval 的 per_question.jsonl（每题存有 n 个 samples）在任意 k≤n 上重算
-pass@1 / pass@k / cons@k，使不同 n 的运行（如 n=8 与 n=4）能在同一 k 上公平对比。
+pass@1 / pass@k / cons@k，使不同 n 的运行能在同一 k 上公平对比。
 
-- pass@1 (avg@n)：单样本正确率的估计，与 n 无关，沿用全部样本的均值（样本越多方差越小），
-  不同 n 估计的是同一量，可直接对比。
-- pass@k：无偏估计 pass_at_k(n, c, k)，用全部 n 个样本计算（比只留 k 个再估的方差更小），
-  估计的仍是"采 k 个至少 1 对"这一量，故不同 n 算出的 pass@k 可比。
-- cons@k：多数投票依赖样本数（k 越大越准），不能直接用全部 n 代替。对每题在 C(n,k) 个 k-子集
-  （至多 --max_subsets 个，确定性均匀取样）上各做一次多数投票、判众数答案对错后取平均，
-  得到与"只采 k 个做投票"可比的 cons@k。
+- pass@1 (avg@n)：全部样本的均值。
+- pass@k：用全部 n 个样本算无偏估计 pass_at_k(n, c, k)。
+- cons@k：对每题在 C(n,k) 个 k-子集（至多 --max_subsets 个，确定性均匀取样）上各做一次多数投票、
+  判众数答案对错后取平均。
 
 用法：
   python eval/base_at_k.py --pq $LOGS/eval/olymmath_base/per_question.jsonl --k 4
@@ -21,14 +18,14 @@ from itertools import combinations
 
 
 def pass_at_k(n, c, k):
-    """无偏 pass@k（Chen et al. 2021）：n 个样本里 c 个正确。"""
+    """无偏 pass@k：n 个样本里 c 个正确。"""
     if n - c < k:
         return 1.0
     return 1.0 - math.prod((n - c - i) / (n - i) for i in range(k))
 
 
 def extract_boxed(text):
-    """取最后一个 \\boxed{...}，括号配平支持任意层嵌套（与 eval_math.extract_boxed 一致）。"""
+    """取最后一个 \\boxed{...}，括号配平支持任意层嵌套。"""
     key = "\\boxed{"
     i = text.rfind(key)
     if i == -1:
@@ -62,10 +59,10 @@ def main():
         if n < a.k:
             raise SystemExit(f"❌ 某题只有 {n} 个样本 < k={a.k}，无法重算")
 
-        # 每个样本是否正确（pass 类指标）
+        # 每个样本是否正确
         corr = [1 if compute_score(s, gt) >= 1.0 else 0 for s in samples]
         c = sum(corr)
-        # 每个样本的 boxed 答案 + 该答案对错（cons 用；先按去重答案判一次，避免重复判分）
+        # 每个样本的 boxed 答案 + 该答案对错（cons 用）
         boxeds = [extract_boxed(s) for s in samples]
         box_ok = {b: (compute_score("\\boxed{" + b + "}", gt) >= 1.0)
                   for b in {b for b in boxeds if b}}
@@ -75,7 +72,7 @@ def main():
 
         # cons@k：在至多 max_subsets 个 k-子集上多数投票取众数、判对错、平均
         subsets = list(combinations(range(n), a.k))
-        if len(subsets) > a.max_subsets:                      # 确定性均匀抽取，保证可复现
+        if len(subsets) > a.max_subsets:                      # 确定性均匀抽取
             step = len(subsets) / a.max_subsets
             subsets = [subsets[int(i * step)] for i in range(a.max_subsets)]
         hits = 0
@@ -91,7 +88,7 @@ def main():
         sum_pk += pk
         sum_cons += cons
         N += 1
-        # 若原文件带有 new_tokens/n_truncated，一并汇报，便于与完整 summary 对齐核对
+        # 若原文件带有 new_tokens/n_truncated，一并汇报
         if "new_tokens" in r:
             n_tok += sum(r["new_tokens"])
             n_gen += len(r["new_tokens"])

@@ -1,7 +1,6 @@
 """切片归因：读取 eval_math.py 的 per_question.jsonl。
-单模型模式：按 level/type/subject/difficulty 切片统计准确率并 dump 错例，供人工做错误类型分析。
+单模型模式：按 level/type/subject/difficulty 切片统计准确率并 dump 错例。
 配对模式(--vs)：对比两个模型在同一批题上的表现，输出逐切片 Δ准确率与 McNemar 混淆（修好/弄坏的题）。
-    配对模式以题为统计单位（n=题数），适用于只有 2 种方法、无法做跨方法相关（点数<3 相关无意义）时的归因。
 
 用法：
   # 单模型切片
@@ -23,8 +22,7 @@ def load(path):
 
 
 def mcnemar_p(b, c):
-    """McNemar 精确二项检验（双侧）：b、c 为两个不一致格（仅 A 对 / 仅 B 对）的计数。
-    不一致数通常很小，故用精确二项而非 χ² 近似；p<0.05 才认为方向性变化（修好/弄坏）显著。"""
+    """McNemar 精确二项检验（双侧）：b、c 为两个不一致格（仅 A 对 / 仅 B 对）的计数。"""
     n = b + c
     if n == 0:
         return 1.0
@@ -33,7 +31,7 @@ def mcnemar_p(b, c):
 
 
 def _na_warn(keys, by):
-    """切片字段在该数据上全为 NA 时给出告警(避免"一个 NA 组 0%"被误读为真结果)。"""
+    """切片字段在该数据上全为 NA 时给出告警。"""
     if set(keys) == {"NA"}:
         return (f"> ⚠️ 切片字段 `{by}` 在本数据上全为 NA(该字段不适用：OlymMATH 只有 subject、"
                 f"LiveCodeBench 用 difficulty/platform、MC 用 category/discipline)——换 --by 再看。")

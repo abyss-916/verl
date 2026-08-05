@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# 环境配置：按 verl 官方流程（docs/start/install.rst）建 conda 环境并安装 verl 与后端（vLLM）。
+# 环境配置：按 verl 官方流程建 conda 环境并安装 verl 与后端（vLLM）。
 # 用法：
-#   bash run/setup.sh                 # 建默认环境 verl 并安装
+#   bash run/setup.sh                      # 建默认环境 verl 并安装
 #   ENV_NAME=verl_grpo bash run/setup.sh   # 建另一环境名
-#
-# 本脚本为 verl 原生安装命令。项目实跑用两个隔离环境（verl / verl_grpo），另有版本约束
-#   （glibc 2.31 → vLLM ≤0.12、flash-attn 预编译轮子）与运行时修复，见 run/env.sh，不在本脚本内。
 set -euo pipefail
 
 ENV_NAME=${ENV_NAME:-verl}
