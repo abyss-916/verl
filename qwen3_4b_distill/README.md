@@ -38,7 +38,6 @@ qwen3_4b_distill/
 │   ├── attribution.py           数据属性 ↔ 下游表现 的相关性归因
 │   └── slice_eval.py            逐学科 Δ + 配对 McNemar + 错例（深度归因）
 ├── run/                     编排脚本（详见"复现"）
-├── tests/                   reward 判定器单元自检
 └── README.md
 ```
 
@@ -131,7 +130,7 @@ STEPS=5 setsid bash run/10_grpo_chain.sh > $LOGS/run/10_grpo_chain.log 2>&1 < /d
 | `07_merge.sh` | LoRA 折叠为完整 HF 模型（含权重移动自检；PPO ckpt 自动取 `actor/` 子目录） |
 | `10_grpo_chain.sh` | GRPO → merge → eval 一键自动接续 |
 | `make_manifest.py` | 单实验完整记录（dataset / teacher / 方法 / 采样 / filter / 结果 / 论文对齐） |
-| `05_extended.sh` / `08_expansion.sh` / `09_smoke_pipeline.sh` | 扩展 benchmark / 归因扩展批 / 端到端冒烟 |
+| `05_extended.sh` | 扩展 benchmark base eval（code / MMLU-Pro 等） |
 
 ---
 

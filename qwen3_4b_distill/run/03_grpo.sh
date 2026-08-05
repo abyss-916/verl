@@ -9,7 +9,7 @@
 #   code      : reward=code_reward(prime_code 跑单测), eval=eval_code, manager=prime
 #   mc        : reward=mc_reward(抽字母比对),           eval=eval_mc,   manager=naive
 # code/mc 无独立 train 种子：正式跑须用与评测集不重叠的 train 种子（设 TRAIN_DIR= 指向含 train.parquet 的目录），
-#    否则拿评测集当训练即数据泄漏。math 侧 train=math_seed / eval=olymmath 无重叠。冒烟见 run/09_smoke_pipeline.sh。
+#    否则拿评测集当训练即数据泄漏。math 侧 train=math_seed / eval=olymmath 无重叠。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/
@@ -24,7 +24,7 @@ esac
 
 # train/grpo.sh 用 $TRAIN_DIR/train.parquet 作 GRPO 训练 prompt；code/mc 数据集只有 test.parquet，须自备 train 种子
 if [ ! -f "$TRAIN/train.parquet" ]; then
-  echo "!! [$ABILITY] 缺 $TRAIN/train.parquet —— code/mc 需自备与评测集不重叠的 train 种子（设 TRAIN_DIR=），或用 run/09_smoke_pipeline.sh 造冒烟种子"; exit 1
+  echo "!! [$ABILITY] 缺 $TRAIN/train.parquet —— code/mc 需自备与评测集不重叠的 train 种子（设 TRAIN_DIR= 指向含 train.parquet 的目录）"; exit 1
 fi
 
 FROM=${FROM:-sft_standard_cot}                    # 起点 SFT 实验名
