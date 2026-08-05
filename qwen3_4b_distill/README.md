@@ -116,6 +116,8 @@ qwen3_4b_distill/
 | `eval.sh` | held-out 评测（`METHODS=base` 评 base，或评已 merge 的 SFT/GRPO；两卡分片） |
 | `eval_extended.sh` | 扩展 benchmark base eval（code / MMLU-Pro 等） |
 
+**多能力域**：`distill / sft / grpo / eval` 均支持 `ABILITY=math`（默认）`| code | mc` 切换，由 `env.sh` 统一解析 reward 判分器 / reward_manager / 训练种子 / 评测集 / 评测脚本 / 造数据基线方法。例：`ABILITY=code METHOD=code_cot bash run/distill.sh`。注：只有 math 端到端验证过；code/mc 各模块就绪但未训（仅跑过 base eval），其 SFT/GRPO 首次跑前须自备与评测集不重叠的 train 种子。
+
 ---
 
 ## 结果与分析

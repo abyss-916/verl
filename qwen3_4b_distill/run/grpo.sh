@@ -54,6 +54,7 @@ else
   conda activate "$GRPO_ENV" || { echo "!! 无法 conda activate $GRPO_ENV"; exit 1; }
   rm -rf "$CKPT/$EXP"    # 干净重启（短 PoC，不从中断点续训，避免半写 ckpt）
   EXP="$EXP" MODEL_PATH="$SFT_BASE" TP="$TP" GM="$GM" RESP="$RESP" N="$N" EPOCHS="$EPOCHS" TBS="$TBS" STEPS="$STEPS" \
+    REWARD="$REWARD_FN" RM="$REWARD_MGR" TRAIN_DIR="$ABILITY_SEED_DIR" VAL_DIR="$ABILITY_EVAL_DIR" \
     bash "$PROJ/train/grpo.sh"
   GRC=$?    # 退出码仅作诊断，不据此判成败：verl/Ray teardown 常在训练成功后仍返回非零码，
             #  若据退出码终止，会出现“训练成功却不接 merge”的情况

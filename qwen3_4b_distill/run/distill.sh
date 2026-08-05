@@ -23,7 +23,7 @@ set -euo pipefail
 : "${PROJ:?先 source run/env.sh}"
 : "${TEACHER:?先 source run/env.sh}"
 
-METHOD=${METHOD:-standard_cot}          # standard_cot / reverse / question_aug
+METHOD=${METHOD:-$DISTILL_METHOD}       # 按 ABILITY 默认：math=standard_cot / code=code_cot / mc=mc_cot；math 另可传 reverse / question_aug / shortest_cot
 LIMIT=${LIMIT:-500}                      # 正式用多少 seed（=omni_seed 全量 500；三法一致=受控对比）
 SMOKE=${SMOKE:-16}                       # 冒烟 seed 数
 N=${N:-1}                                # 每题采样候选数；shortest_cot 需 >1(如 4)才有"选最短"空间；标准三法/教师轴用 1
@@ -31,7 +31,7 @@ GPU_MEM=${GPU_MEM:-0.9}                   # 按 nvidia-smi 定：两卡空 0.9�
 TP=${TP:-2}                              # 8B 教师满预算(40960 KV)单卡放不下，须用 tp=2
 GPUS=${GPUS:-0,1}                         # 先看 nvidia-smi 再定用哪两张卡（共享机，避开已被占用的卡）
 export CUDA_VISIBLE_DEVICES=$GPUS
-SEED=${SEED:-$OMNI_SEED_DIR/train.parquet}   # 主线 Omni d4–5 种子（omni_seed，500 条；不用 olymmath=held-out）
+SEED=${SEED:-$ABILITY_SEED_DIR/train.parquet}   # 按 ABILITY：math=omni_seed(500)/code=livecodebench/mc=mmlu_pro；不用评测集=防泄漏
 OUT=${OUT:-$DATA/distill/$METHOD}
 # max_new/max_len 默认不传，用 generate_cot.py 满预算默认(38912/40960)，不为省时改小。
 # 覆盖场景（任务三教师轴）：短上下文教师 Qwen2.5-Math-7B(ctx=4096) 须设 MAX_LEN=4096 MAX_NEW=3584（否则 vLLM 无法启动）；

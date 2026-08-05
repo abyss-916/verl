@@ -74,6 +74,18 @@ export EVAL_HF=${EVAL_HF:-RUC-AIBOX/OlymMATH}
 export EVAL_SUBSET=${EVAL_SUBSET:-en-hard}
 export EVAL_DIR=${EVAL_DIR:-$DATA/olymmath}
 
+# ── 能力域切换（distill / sft / grpo / eval 用；默认 math）──
+# 按 ABILITY 切换：reward 判分器 / reward_manager / 训练种子 / 评测集 / 评测脚本 / 造数据基线方法。
+# ⚠️ 只有 math 端到端跑过；code/mc 各模块就绪但未训（仅跑过 base eval）。code/mc 的 SFT/GRPO 首次跑前，
+#    须自备与评测集不重叠的 train 种子（LiveCodeBench/MMLU-Pro 仅 test），并令 ABILITY_SEED_DIR 指向含 train.parquet 的目录。
+export ABILITY=${ABILITY:-math}
+case "$ABILITY" in
+  code) export REWARD_FN=$PROJ/reward/code_reward.py; export REWARD_MGR=prime; export ABILITY_SEED_DIR=$DATA/livecodebench; export ABILITY_EVAL_DIR=$DATA/livecodebench; export EVAL_PY=eval_code.py; export DISTILL_METHOD=code_cot ;;
+  mc)   export REWARD_FN=$PROJ/reward/mc_reward.py;   export REWARD_MGR=naive; export ABILITY_SEED_DIR=$DATA/mmlu_pro;      export ABILITY_EVAL_DIR=$DATA/mmlu_pro;      export EVAL_PY=eval_mc.py;   export DISTILL_METHOD=mc_cot ;;
+  *)    [ "$ABILITY" = math ] || echo "[env] 未知 ABILITY=$ABILITY（math|code|mc），按 math 处理" >&2
+        export ABILITY=math; export REWARD_FN=$PROJ/reward/math_reward.py; export REWARD_MGR=naive; export ABILITY_SEED_DIR=$OMNI_SEED_DIR; export ABILITY_EVAL_DIR=$EVAL_DIR; export EVAL_PY=eval_math.py; export DISTILL_METHOD=standard_cot ;;
+esac
+
 # 取某训练输出目录下"最新 global_step 的 HF 权重目录"（供 vLLM eval / 从 SFT 起 GRPO 加载）
 latest_hf() { ls -d "$1"/global_step_*/huggingface 2>/dev/null | sort -V | tail -1; }
 export -f latest_hf

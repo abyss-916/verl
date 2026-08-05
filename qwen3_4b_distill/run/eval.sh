@@ -11,7 +11,7 @@
 set -uo pipefail   # 不加 -e：某一法/某片失败时跳过，不影响其余两法
 source "$(dirname "$0")/env.sh"
 
-DATA_PARQUET=${DATA_PARQUET:-$EVAL_DIR/test.parquet}   # held-out OlymMATH，不用训练集
+DATA_PARQUET=${DATA_PARQUET:-${ABILITY_EVAL_DIR:-$EVAL_DIR}/test.parquet}   # held-out OlymMATH，不用训练集
 N=${N:-4}
 GM=${GM:-0.8}          # 共卡时 0.8 稳定；0.85 会在 sampler warmup 阶段 OOM
 G0=${G0:-0}            # 分片0用的物理卡
@@ -30,11 +30,11 @@ for M in $METHODS; do
   echo "---- [$M] 开始 model=$MODEL ----"
   rm -rf "$S0" "$S1" "$OUT"      # 清除旧分片/合并结果，避免脏数据混入
 
-  CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/eval/eval_math.py" \
+  CUDA_VISIBLE_DEVICES=$G0 python "$PROJ/eval/${EVAL_PY:-eval_math.py}" \
     --model "$MODEL" --data "$DATA_PARQUET" --n "$N" --gpu_mem "$GM" \
     --num_shards 2 --shard 0 --out "$S0" > "$LOGS/run/eval_${M}_s0.log" 2>&1 &
   P0=$!
-  CUDA_VISIBLE_DEVICES=$G1 python "$PROJ/eval/eval_math.py" \
+  CUDA_VISIBLE_DEVICES=$G1 python "$PROJ/eval/${EVAL_PY:-eval_math.py}" \
     --model "$MODEL" --data "$DATA_PARQUET" --n "$N" --gpu_mem "$GM" \
     --num_shards 2 --shard 1 --out "$S1" > "$LOGS/run/eval_${M}_s1.log" 2>&1 &
   P1=$!
