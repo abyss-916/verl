@@ -18,6 +18,8 @@ G0=${G0:-0}            # 分片0用的物理卡
 G1=${G1:-1}            # 分片1用的物理卡
 PREFIX=${PREFIX-sft_}    # 模型目录前缀（用 - 而非 :- 使空串也生效）：SFT=sft_（默认）；GRPO 传 PREFIX=grpo_ + METHODS=omni_<法>（或 PREFIX= 空 + METHODS=grpo_<法>）
 METHODS=${METHODS:-"standard_cot reverse question_aug"}
+[ -f "$DATA_PARQUET" ] || { echo "!! 缺评测集 $DATA_PARQUET，终止"; exit 1; }
+done_n=0
 
 echo "==== eval 开始 | n=$N gm=$GM 卡=($G0,$G1) 前缀=[$PREFIX] 方法=[$METHODS] data=$DATA_PARQUET ===="
 for M in $METHODS; do
@@ -46,6 +48,7 @@ for M in $METHODS; do
   fi
   python "$PROJ/eval/merge_shards.py" --shards "$S0" "$S1" --out "$OUT" \
     | tee "$LOGS/run/eval_${M}_merged.log"
-  echo "---- [$M] 完成 → $OUT/summary.json ----"
+  echo "---- [$M] 完成 → $OUT/summary.json ----"; done_n=$((done_n+1))
 done
-echo "==== 三法 eval 全部结束 ===="
+[ "$done_n" -gt 0 ] || { echo "!! eval 未评测任何模型（模型目录都不存在或分片全部失败），终止"; exit 1; }
+echo "==== eval 结束：$done_n 个模型已评 ===="

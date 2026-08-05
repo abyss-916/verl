@@ -43,6 +43,7 @@ EXTRA=()
 
 echo "[gen] method=$METHOD limit=$LIMIT n=$N tp=$TP gpu_mem=$GPU_MEM"
 echo "[gen] seed=$SEED  out=$OUT  teacher=$TEACHER"
+[ -f "$SEED" ] || { echo "!! 缺造数据种子 $SEED（math=omni_seed 须先切分；code/mc=先 prepare 对应数据集）"; exit 1; }
 
 echo "[gen] === 冒烟 $SMOKE 条（验 tp=2 起得来 + 数据质量），写 ${OUT}_smoke ==="
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
