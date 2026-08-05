@@ -1,7 +1,7 @@
-"""把多个方法/teacher 的数据度量结果（data_metrics.py 产出的 json）汇成一张对比表（任务二/三用）。
+"""将多份数据度量结果（data_metrics.py 产出的 json）汇成一张方法对比表。
 
-用法（服务器）：
-  # 先分别对三法数据跑 data_metrics.py --out standard.json / reverse.json / qaug.json
+用法：
+  # 先对各方法数据分别运行 data_metrics.py 得到各自的 json
   python compare_methods.py --in standard_cot=standard.json reverse=reverse.json question_aug=qaug.json \
     --out compare_methods.md
 """

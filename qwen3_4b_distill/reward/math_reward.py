@@ -1,9 +1,9 @@
-"""OlymMATH 等自定义 math 集的可验证奖励——复用 verl 内置 math-verify。
+"""OlymMATH 等自定义 math 集的可验证奖励，复用 verl 内置 math-verify。
 
-verl 的 RewardManager 会以固定签名调用：
+verl 的 RewardManager 以固定签名调用：
     compute_score(data_source, solution_str, ground_truth, extra_info=None) -> float
-GRPO/eval 挂载方式（命令行）：
-    custom_reward_function.path=/data/liujiachen/verl/qwen3_4b_distill/reward/math_reward.py
+GRPO/eval 挂载：
+    custom_reward_function.path=<repo>/qwen3_4b_distill/reward/math_reward.py
     custom_reward_function.name=compute_score
 """
 

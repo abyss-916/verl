@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# 扩展 benchmark base eval（加分，全部 held-out）：
+# 扩展 benchmark base eval（全部 held-out）：
 #   code = LiveCodeBench（需测试用例格式核对，见 reward/code_reward.py）
 #   mc   = MMLU-Pro / SuperGPQA（科学推理，开放替代 GPQA）
 #   math = AIME（须 avg@k；设了 $AIME_HF 才跑）
-# 规模大，用 LIMIT 控采样。首轮先 base，训练后再评 SFT/GRPO ckpt。
+# 规模较大，用 LIMIT 控制采样量。首轮先评 base，训练后再评 SFT/GRPO ckpt。
 set -xeuo pipefail
 source "$(dirname "$0")/env.sh"
 mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/

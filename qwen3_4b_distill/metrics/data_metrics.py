@@ -1,13 +1,13 @@
-"""蒸馏数据度量（student 视角）——对接课题 metrics 阶段与任务三归因。
-度量：样本数 / 长度(token) / 多样性(distinct-1,2) / PPL / IFD。
-    - PPL、IFD 用 **student 基座**（Qwen3-4B）算，因为课题问的是"数据适不适合 4B 学"。
-    - IFD = L(answer|question) / L(answer)：越高=问题对预测答案帮助越小=越难跟随/越有信息量；
-      IFD>=1 视为噪声/错配（精确定义参见 Cherry LLM, arXiv:2308.12032）。
+"""蒸馏数据度量（student 视角）。
 
-用法（服务器）：
-  python data_metrics.py --data /data/liujiachen/datasets/distill/standard_cot/train.parquet \
-    --model /data/liujiachen/models/Qwen3-4B --limit 500 --out metrics_standard_cot.json
-不给 --model 时只算 长度 + 多样性（快，仅需 tokenizer；用 --tokenizer 指定）。
+度量：样本数 / 长度(token) / 多样性(distinct-1,2) / PPL / IFD。
+PPL、IFD 以 student 基座（Qwen3-4B）计算，用于判断数据是否适合 4B 学生模型学习。
+IFD = L(answer|question) / L(answer)：值越高表示问题对预测答案的帮助越小，即越难跟随、信息量越大；
+IFD>=1 视为噪声或问答错配（定义见 Cherry LLM, arXiv:2308.12032）。
+
+用法：
+  python data_metrics.py --data <train.parquet> --model <student_base> --limit 500 --out metrics.json
+不给 --model 时仅计算长度与多样性（仅需 tokenizer，可用 --tokenizer 指定）。
 """
 
 import argparse
@@ -83,8 +83,8 @@ def compute_ppl_ifd(rows, model_path, limit, device="cuda", max_len=8192):
         if not a:
             continue
         q_ids, a_ids = tok.encode(q), tok.encode(a)
-        # 超长跳过：单条前向的 logits 是 [seq × vocab(≈15万)]，16K token 就 ~5G，24G 卡会 OOM。
-        # IFD/PPL 是整体分布度量，跳过极少数超长样本不改结论；跳过数记入 json 保持透明。
+        # 超长样本跳过：单条前向的 logits 形状为 [seq × vocab(≈15万)]，16K token 约占 5G，24G 显存会 OOM。
+        # IFD/PPL 为整体分布度量，跳过极少数超长样本不影响结论；跳过数量记入 json。
         if len(q_ids) + len(a_ids) > max_len:
             n_skip += 1
             continue

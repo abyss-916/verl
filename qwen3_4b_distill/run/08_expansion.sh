@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# 08_expansion.sh —— 扩展批（全部数据侧 / base eval，无 SFT）：
-#   ① 归因分析全套(data_metrics/compare/attribution/slice_eval/manifest，原文"解释为什么变"的正身)
+# 08_expansion.sh —— 扩展批（全部为数据侧 / base eval，无 SFT）：
+#   ① 归因分析全套(data_metrics/compare/attribution/slice_eval/manifest，即原文"解释为什么变"部分)
 #   ② shortest_cot 造数据(任务二第4方法，Concise-CoT，N=3 选最短正确)
 #   ③ prompt 轴造数据(同 8B、standard_cot + Plan-and-Solve[PS] 触发，Wang et al. ACL2023 2305.04091)
 #   ④ MMLU-Pro base eval(任务一科学推理，2/5→3/5)
-#   ⑤ code 重测(max_new 16384→38912，实测 prompt max=1343 零截断)
-# 参数一律与已完成实验一致(见各步注释)。排在 chain2(DeepSeek/14B eval)之后自动启动。
+#   ⑤ code 重测(max_new 16384→38912，实测 prompt max=1343，无截断)
+# 参数与已完成实验一致(见各步注释)。排在 chain2(DeepSeek/14B eval)之后自动启动。
 #
 # 用法(服务器，先 git pull 拿 shortest_cot)：
 #   setsid bash run/08_expansion.sh > /data/liujiachen/logs/run/08_expansion.log 2>&1 < /dev/null &
 #   看总进度： tail -f /data/liujiachen/logs/run/08_expansion.log
-set +e   # 某步失败要跳过、不拖垮整批(故意不加 -e/-u/pipefail)
+set +e   # 某步失败时跳过，不影响整批(不加 -e/-u/pipefail)
 source "$(dirname "$0")/env.sh"
 say(){ echo "[$(date '+%F %T')] $*"; }
 G0=0; G1=1
 
-# data_metrics 单个(供两两并行) —— 每个实例占一张卡，绝不单卡串行
+# data_metrics 单个(供 dm_pairs 两两并行)：每个实例占一张卡
 dm(){  # $1=数据集名 $2=卡号
   local m="$1" c="$2" D="$DATA/distill/$1/train.parquet"
   [ -f "$LOGS/metrics_$m.json" ] && { say "  ↷ data_metrics $m 已存在，跳过"; return; }   # 幂等：重跑不重算
@@ -24,7 +24,7 @@ dm(){  # $1=数据集名 $2=卡号
     --out "$LOGS/metrics_$m.json" > "$LOGS/run/metrics_$m.log" 2>&1
   [ -f "$LOGS/metrics_$m.json" ] && say "  ✔ data_metrics $m" || say "  ✗ data_metrics $m(查 metrics_$m.log)"
 }
-dm_pairs(){  # 参数=数据集名列表，两两分到 G0/G1 并行(两卡吃满)
+dm_pairs(){  # 参数=数据集名列表，两两分到 G0/G1 并行（两卡各一）
   local arr=("$@") i=0
   while [ $i -lt ${#arr[@]} ]; do
     dm "${arr[$i]}" "$G0" &
@@ -58,7 +58,7 @@ done
 say "阶段0: 两卡就绪(free=$f0/$f1 MiB)。"
 
 # ───────── 阶段1a：data_metrics 现有数据(3法 + 教师轴，IFD/PPL/distinct/长度) ─────────
-# 与文档一致：--model $STUDENT_BASE(同学生)。两两并行、两卡吃满(dm_pairs)。
+# 与文档一致：--model $STUDENT_BASE(同学生)。两两并行(dm_pairs)。
 say "阶段1a: data_metrics(现有 6 个，两卡两两并行)"
 dm_pairs omni_standard_cot omni_reverse omni_question_aug omni_t3_14b omni_t3_dsv4pro omni_t3_math7b
 
@@ -82,7 +82,7 @@ else
 fi
 
 # ───────── 阶段1c：code 重测(max_new 38912，两卡分片) ─────────
-# 与已完成 code eval 一致(n4/全167/两卡分片/gpu_mem0.8)，仅 max_new 16384->38912(实测 prompt max=1343 零截断)。
+# 与已完成 code eval 一致(n4/全167/两卡分片/gpu_mem0.8)，仅 max_new 16384->38912(实测 prompt max=1343，无截断)。
 say "阶段1c: code base 重测 @max_new=38912"
 CG="$LOGS/run/eval_lcb_base_mn38912.log"
 if [ -f "$LOGS/eval/lcb_base_mn38912/summary.json" ]; then

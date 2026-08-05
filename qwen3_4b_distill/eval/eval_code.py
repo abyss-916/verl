@@ -1,11 +1,12 @@
-"""代码评测（LiveCodeBench）：vLLM 生成 → 抽 ```python 代码 → prime_code/sandbox 判分 → pass@1 / pass@k。
-用法（服务器）：
+"""代码评测（LiveCodeBench）：vLLM 生成 → 抽取 ```python 代码 → prime_code/sandbox 判分 → pass@1 / pass@k。
+判分复用 reward/code_reward.py（本地 prime_code，或设 SANDBOX_FUSION_URL 用沙箱）。
+依赖测试用例格式正确（见 reward/code_reward.py 的 TODO），首次运行需核对。
+thinking 开启时 Qwen3 会先思考再输出代码，故 max_new 默认放大并统计 truncated_rate；
+截断率偏高说明生成预算不足（分数虚低），据此调大 --max_new。
+
+用法：
   python eval_code.py --model /data/liujiachen/models/Qwen3-4B \
     --data /data/liujiachen/datasets/livecodebench/test.parquet --n 1 --out $LOGS/eval/lcb_base
-判分复用 reward/code_reward.py（本地 prime_code，或设 SANDBOX_FUSION_URL 用沙箱）。
-⚠️ 依赖测试用例格式正确（见 reward/code_reward.py 的 TODO），首次跑需核对。
-⚠️ 与 eval_math 一致：thinking 开着时 Qwen3 会先长思考再出代码，故默认 max_new 放大并统计 truncated_rate——
-   若截断率高说明预算不足（重演数学 8192 假性归零的雷），据此调大 --max_new。
 """
 
 import argparse
@@ -72,7 +73,7 @@ def main():
     ck = {} if not a.no_thinking else {"enable_thinking": False}
     prompts = [tok.apply_chat_template([{"role": "user", "content": q}], tokenize=False, add_generation_prompt=True, **ck)
                for q, _, _ in items]
-    # max_model_len 按最长题面动态定：保证每题都留够 max_new 的真实生成预算，长题面才不会把预算挤小→假性截断(不可比)
+    # max_model_len 按最长题面动态确定：保证每题都留足 max_new 的生成预算，避免长题面压缩预算导致截断（不可比）
     max_prompt = max((len(tok(p)["input_ids"]) for p in prompts), default=0)
     max_model_len = min(40960, a.max_new + max_prompt + 256)
     llm = LLM(model=a.model, trust_remote_code=True, tensor_parallel_size=a.tp,
@@ -94,7 +95,7 @@ def main():
             n_trunc += sum(trunc)
             n_tok += sum(toks)
             n_gen += nn
-            # 与 eval_math 同构：带 question/avg/pass@k/切片字段，slice_eval(归因) 与 merge_shards(分片合并) 才能用
+            # 与 eval_math 结构一致：含 question/avg/pass@k 及切片字段，供 slice_eval（归因）与 merge_shards（分片合并）使用
             f.write(json.dumps({"question": q, **meta, "n_pass": nc, "n": nn,
                                 "avg": avg, f"pass@{k}": pk,
                                 "n_truncated": sum(trunc), "new_tokens": toks}, ensure_ascii=False) + "\n")

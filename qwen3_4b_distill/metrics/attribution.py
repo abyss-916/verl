@@ -1,6 +1,6 @@
-"""归因分析（课题核心"解释 accuracy 为什么变"）：把"数据侧指标"与"训练后表现"关联。
+"""归因分析：将数据侧指标与训练后表现关联，用于解释 accuracy 的变化。
 每个实验点 = data_metrics.py 的 json + eval_math/eval_code 的 summary.json。
-输出合并表 + 各数据指标与 pass@1 的相关系数，看哪个数据属性最能解释表现变化。
+输出合并表及各数据指标与 pass@1 的相关系数，用于判断哪个数据属性最能解释表现变化。
 
 用法：
   python attribution.py --out $LOGS/attribution.md \

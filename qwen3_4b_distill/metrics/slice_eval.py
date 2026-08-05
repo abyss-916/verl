@@ -1,12 +1,12 @@
-"""深度归因：读 eval_math.py 的 per_question.jsonl。
-单模型模式：按 level/type/subject/difficulty 切片统计准确率 + dump 错例，供人工做错误类型分析。
-配对模式(--vs)：对比两个模型在同一批题上的表现——逐切片 Δ准确率 + 谁修好/谁弄坏的题(McNemar 混淆)。
-    这是"只有 2 种方法时"做归因的主力：统计单位是题(n=题数)，扎实；
-    不靠跨方法相关系数那种 n=2/3 的伪相关（见 attribution.py，点数<3 相关无意义）。
+"""切片归因：读取 eval_math.py 的 per_question.jsonl。
+单模型模式：按 level/type/subject/difficulty 切片统计准确率并 dump 错例，供人工做错误类型分析。
+配对模式(--vs)：对比两个模型在同一批题上的表现，输出逐切片 Δ准确率与 McNemar 混淆（修好/弄坏的题）。
+    配对模式以题为统计单位（n=题数），适用于只有 2 种方法、无法做跨方法相关（点数<3 相关无意义）时的归因。
+
 用法：
   # 单模型切片
   python slice_eval.py --jsonl $LOGS/eval/olymmath_sft_standard/per_question.jsonl --by type --dump 5
-  # 配对对比：reverse 相对 standard 在哪类题上提升/退步
+  # 配对对比
   python slice_eval.py --jsonl $LOGS/eval/olymmath_sft_standard/per_question.jsonl \
       --vs $LOGS/eval/olymmath_sft_reverse/per_question.jsonl \
       --name_a standard --name_b reverse --by type --dump 5
@@ -23,8 +23,8 @@ def load(path):
 
 
 def mcnemar_p(b, c):
-    """McNemar 精确二项检验(双侧)：b/c=两个不一致格(仅 A 对 / 仅 B 对)的计数。
-    n=100、不一致数常很小 → 用精确二项而非 χ² 近似。p<0.05 才谈"显著修好/弄坏"。"""
+    """McNemar 精确二项检验（双侧）：b、c 为两个不一致格（仅 A 对 / 仅 B 对）的计数。
+    不一致数通常很小，故用精确二项而非 χ² 近似；p<0.05 才认为方向性变化（修好/弄坏）显著。"""
     n = b + c
     if n == 0:
         return 1.0

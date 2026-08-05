@@ -1,10 +1,10 @@
-"""选择题类科学推理 benchmark → verl RL parquet（held-out eval，扩展项/加分）。
+"""选择题类科学推理 benchmark → verl RL parquet（held-out eval）。
 支持 MMLU-Pro（列 question/options/answer(字母)/category）、SuperGPQA（question/options/answer_letter/discipline/...）。
 
-用法（服务器）：
+用法：
   python prepare_mc.py --hf TIGER-Lab/MMLU-Pro --subset default --out /data/liujiachen/datasets/mmlu_pro --data_source mmlu_pro
   python prepare_mc.py --hf m-a-p/SuperGPQA   --subset default --out /data/liujiachen/datasets/supergpqa --data_source supergpqa
-判分：正确选项字母，用 eval/eval_mc.py（抽 \\boxed{字母} 比对）。
+判分：取正确选项字母，用 eval/eval_mc.py（抽 \\boxed{字母} 比对）。
 """
 
 import argparse

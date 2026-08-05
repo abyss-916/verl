@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# 全链路冒烟：证明 code / mc 两个能力的  reward判分 → 造数据(gen) → SFT → eval → GRPO  每步【不报错】，
-# 即"真接入端到端可跑"，而非"只接了一个 base eval"。极小样本、产物即弃，只验证管线连通性。
+# 全链路冒烟：验证 code / mc 两个能力的  reward判分 → 造数据(gen) → SFT → eval → GRPO  每步不报错，
+# 即端到端可跑，而非只接一个 base eval。极小样本、产物即弃，只验证管线连通性。
 #
-# ⚠️ gen/GRPO 用 test.parquet 的切片作 stand-in 训练种子 = 仅冒烟；正式造数据/训练必须用与评测集
-#    不重叠的独立 train 种子（否则泄漏）。本脚本产物写在 *_smoke 目录、与正式实验隔离。
+# gen/GRPO 用 test.parquet 的切片作 stand-in 训练种子，仅用于冒烟；正式造数据/训练须用与评测集
+#    不重叠的独立 train 种子（否则泄漏）。本脚本产物写在 *_smoke 目录，与正式实验隔离。
 #
-# 用法（服务器，先看 nvidia-smi 两卡够空）：
+# 用法（服务器，先看 nvidia-smi 确认两卡空闲）：
 #   source run/env.sh
 #   bash run/09_smoke_pipeline.sh                       # 全部阶段
 #   ABIL="mc" DO_GRPO=0 bash run/09_smoke_pipeline.sh   # 只冒烟 mc、跳过最重的 GRPO
@@ -54,7 +54,7 @@ for A in $ABIL; do
     else no "[$A] gen（未写 gen_stats.json）"; fi
   fi
 
-  # ---- ③ SFT：若 gen 有留存(train.parquet)则微调 1 epoch 证明 SFT 吃得下该能力数据 ----
+  # ---- ③ SFT：若 gen 有留存(train.parquet)则微调 1 epoch，验证 SFT 可处理该能力数据 ----
   if [ "$DO_SFT" = 1 ]; then
     if [ -f "$GENOUT/train.parquet" ]; then
       SFTEXP=sft_smoke_$A

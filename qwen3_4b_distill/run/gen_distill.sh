@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# 造蒸馏数据：tp=2 满预算(教师 Qwen3-8B, max_new=38912)，两卡全占，冒烟通过再起正式。
-# 冒烟(--limit SMOKE)先验：① tp=2 教师能在 2×3090(无 NVLink) 起来；② 数据质量对。冒烟崩则不起正式(set -e)。
+# 造蒸馏数据：tp=2 满预算(教师 Qwen3-8B, max_new=38912)，占用两卡，冒烟通过后再起正式。
+# 冒烟(--limit SMOKE)先验证：① tp=2 教师能在 2×3090(无 NVLink) 启动；② 数据质量正常。冒烟失败则不起正式(set -e)。
 #
-# 用法（服务器，先 source env.sh，且两卡都空——tp=2 需要两张卡）：
+# 用法（服务器，先 source env.sh，且两卡空闲——tp=2 需两张卡）：
 #   source run/env.sh
-#   # 先看 nvidia-smi 定 GPU_MEM：两卡都空用 0.9；GPU0 有别人占用则相应调低(如 0.8)
+#   # 先看 nvidia-smi 定 GPU_MEM：两卡空用 0.9；GPU0 被占用则相应调低(如 0.8)
 #   # 三法均 LIMIT=1000（同种子预算=受控三向对比；依据 s1K=1000 / LIMO=817 的"少而精"推理蒸馏）
 #   GPU_MEM=0.9 METHOD=standard_cot LIMIT=1000 nohup bash run/gen_distill.sh \
 #       > "$LOGS/run/gen_standard_cot.log" 2>&1 &
@@ -13,7 +13,7 @@
 #   # 任务三强度轴（同种子换教师）：换 TEACHER + OUT，其余不变，事后 data_metrics 对比
 #   #   TEACHER=/data/liujiachen/models/Qwen3-14B OUT="$DATA/distill/t3_14b" \
 #   #     METHOD=standard_cot LIMIT=500 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_14b.log" 2>&1 &
-#   # 任务三家族轴（Qwen2.5-Math-7B ctx=4096 → 必须 MAX_LEN/MAX_NEW，否则 vLLM 起不来）：
+#   # 任务三家族轴（Qwen2.5-Math-7B ctx=4096，须设 MAX_LEN/MAX_NEW，否则 vLLM 无法启动）：
 #   #   TEACHER=/data/liujiachen/models/Qwen2.5-Math-7B-Instruct OUT="$DATA/distill/t3_math7b" \
 #   #     METHOD=standard_cot LIMIT=500 MAX_LEN=4096 MAX_NEW=3584 GPU_MEM=0.9 nohup bash run/gen_distill.sh > "$LOGS/run/gen_t3_math7b.log" 2>&1 &
 #   # 任务三 prompt 轴（同 8B 换蒸馏风格，只 standard_cot 生效）：
@@ -28,14 +28,14 @@ LIMIT=${LIMIT:-1000}                     # 正式用多少 seed（三法一致=�
 SMOKE=${SMOKE:-16}                       # 冒烟 seed 数
 N=${N:-1}                                # 每题采样候选数；shortest_cot 需 >1(如 4)才有"选最短"空间；标准三法/教师轴用 1
 GPU_MEM=${GPU_MEM:-0.9}                   # 按 nvidia-smi 定：两卡空 0.9；共卡调低
-TP=${TP:-2}                              # 8B 教师满预算(40960 KV)单卡放不下 → 必须 tp=2
-GPUS=${GPUS:-0,1}                         # 先看 nvidia-smi 再定用哪两张卡（共享机，避免撞别人占用的卡）
+TP=${TP:-2}                              # 8B 教师满预算(40960 KV)单卡放不下，须用 tp=2
+GPUS=${GPUS:-0,1}                         # 先看 nvidia-smi 再定用哪两张卡（共享机，避开已被占用的卡）
 export CUDA_VISIBLE_DEVICES=$GPUS
-SEED=${SEED:-$SEED_DIR/train.parquet}    # MATH 种子（绝不用 olymmath——那是 held-out 评测集）
+SEED=${SEED:-$SEED_DIR/train.parquet}    # MATH 种子（不用 olymmath，那是 held-out 评测集）
 OUT=${OUT:-$DATA/distill/$METHOD}
-# max_new/max_len 默认不传 → 用 generate_cot.py 满预算默认(38912/40960)，别为省时改小。
-# 覆盖场景（任务三教师轴）：短上下文教师 Qwen2.5-Math-7B(ctx=4096) → MAX_LEN=4096 MAX_NEW=3584（否则 vLLM 起不来）；
-#   prompt 轴 → SYS_PROMPT="..." 给 standard_cot 换蒸馏风格。三个 env 都没设时 EXTRA 为空 = 与原行为一致。
+# max_new/max_len 默认不传，用 generate_cot.py 满预算默认(38912/40960)，不为省时改小。
+# 覆盖场景（任务三教师轴）：短上下文教师 Qwen2.5-Math-7B(ctx=4096) 须设 MAX_LEN=4096 MAX_NEW=3584（否则 vLLM 无法启动）；
+#   prompt 轴用 SYS_PROMPT="..." 给 standard_cot 换蒸馏风格。三个 env 都未设时 EXTRA 为空，与原行为一致。
 EXTRA=()
 [ -n "${MAX_LEN:-}" ]    && EXTRA+=(--max_len "$MAX_LEN")
 [ -n "${MAX_NEW:-}" ]    && EXTRA+=(--max_new "$MAX_NEW")
@@ -48,8 +48,8 @@ echo "[gen] === 冒烟 $SMOKE 条（验 tp=2 起得来 + 数据质量），写 $
 python "$PROJ/distill/generate_cot.py" --method "$METHOD" --seed "$SEED" --teacher "$TEACHER" \
   --out "${OUT}_smoke" --tp "$TP" --gpu_mem "$GPU_MEM" --n "$N" --limit "$SMOKE" ${EXTRA[@]+"${EXTRA[@]}"}
 
-# 冒烟门控：只看退出码不够——reverse/qaug 可能"跑通但 0 产出"（如 thinking 没关），必须按 n_kept 拦截，
-# 否则会放行几小时的正式 run 全程白跑。
+# 冒烟门控：仅看退出码不够——reverse/qaug 可能"跑通但 0 产出"（如 thinking 未关），须按 n_kept 拦截，
+# 否则会放行数小时的正式 run 而无有效产出。
 python - "$SMOKE" "${OUT}_smoke/gen_stats.json" <<'PY'
 import json, sys
 smoke, p = int(sys.argv[1]), sys.argv[2]

@@ -59,7 +59,7 @@ def main():
         "mean_new_tokens": round(sum(sum(r.get("new_tokens", [])) for r in rows) / n_gen, 1),
         "merged_from": [os.path.expanduser(d) for d in a.shards],
     }
-    # cons@n（多数投票）：新版 eval_math 逐题已带 "cons"；base eval(旧代码)只有 "samples" → 从中补算
+    # cons@n（多数投票）：新版 per_question 已含 "cons"；仅含 "samples" 的旧结果从中补算
     if not any("cons" in r for r in rows) and all("samples" in r and "gt" in r for r in rows):
         import re as _re
         from collections import Counter as _Counter

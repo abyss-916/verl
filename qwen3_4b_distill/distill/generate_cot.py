@@ -1,16 +1,16 @@
-"""teacher 造蒸馏数据 → verl SFT messages parquet。三法（见项目 doc/任务二_方法规格.md）：
+"""teacher 造蒸馏数据 → verl SFT messages parquet。各方法：
   standard_cot  : teacher 直接对种子题生成 CoT，math-verify 过滤答对（rejection sampling）。
-  shortest_cot  : Concise/Short-CoT —— 每题采样 n 个候选，正确者里留 token 最少的（须 --n>1）。测"短而对更利小模型+抗截断"。
-  reverse       : RevThink —— R_f + 逆向问题 Q_b(I_bq) + 逆向推理 R_b + 一致性过滤(I_con)，
+  shortest_cot  : Concise/Short-CoT，每题采样 n 个候选，正确者里留 token 最少的（须 --n>1）。测"短而对是否更利于小模型并抗截断"。
+  reverse       : RevThink，R_f + 逆向问题 Q_b(I_bq) + 逆向推理 R_b + 一致性过滤(I_con)，
                   产多目标样本 (Q→R_f, Q→Q_b, Q_b→R_b)（在 verl SFT 里编码为 3 条 messages 行）。
-  question_aug  : Xwin-Math —— Prompt1 造全新题(FINAL CREATED QUESTION) → Prompt2 造解，
-                  无 gold 用 self-consistency 多数投票过滤答案。
-  code_cot      : Standard-CoT for LiveCodeBench —— teacher 造代码，prime_code 跑测试用例过滤（种子=prepare_code 的 parquet）。
-  mc_cot        : Standard-CoT for 选择题(MMLU-Pro 等) —— 抽 \\boxed{字母} 与 gold 比对过滤（种子=prepare_mc 的 parquet）。
+  question_aug  : Xwin-Math，Prompt1 造全新题(FINAL CREATED QUESTION) → Prompt2 造解，
+                  无 gold 时用 self-consistency 多数投票过滤答案。
+  code_cot      : Standard-CoT for LiveCodeBench，teacher 造代码，prime_code 跑测试用例过滤（种子=prepare_code 的 parquet）。
+  mc_cot        : Standard-CoT for 选择题(MMLU-Pro 等)，抽 \\boxed{字母} 与 gold 比对过滤（种子=prepare_mc 的 parquet）。
 
-公平对比铁律：各法共用同一 teacher / 同一 chat 模板 / 同一采样预算。判定器按能力切换（math-verify / prime_code / 字母匹配），与 eval 同源。
-用法（服务器）：
-  # ⚠️ --seed 只用训练种子（主线 omni_seed / 初期 math_seed），绝不用 olymmath（held-out 评测集，拿来蒸馏=泄漏）
+公平对比：各方法共用同一 teacher / chat 模板 / 采样预算；判定器按能力切换（math-verify / prime_code / 字母匹配），与 eval 同源。
+用法：
+  # --seed 须为训练种子（如 omni_seed / math_seed），不可用 olymmath 等 held-out 评测集，否则造成泄漏
   python generate_cot.py --method reverse \
     --seed /data/liujiachen/datasets/omni_seed/train.parquet \
     --teacher /data/liujiachen/models/Qwen3-8B --out /data/liujiachen/datasets/distill/reverse --tp 2
@@ -30,7 +30,7 @@ BOXED_INSTR = "Please reason step by step, and put your final answer within \\bo
 
 # ---------- 通用 ----------
 def extract_boxed(text):
-    """取最后一个 \\boxed{...}，用括号配平支持任意层嵌套（\\frac{a}{\\sqrt{2}} 这类双层，旧正则会漏）。"""
+    """取最后一个 \\boxed{...}，用花括号配平支持任意层嵌套（如 \\frac{a}{\\sqrt{2}} 的双层嵌套，正则难以覆盖）。"""
     key = "\\boxed{"
     i = text.rfind(key)
     if i == -1:
@@ -57,7 +57,7 @@ def verify(pred_text, gold):
         return False
 
 
-# ---- code / mc 判定：复用与 eval 完全相同的判分器（reward/*），保证"gen 过滤"与"eval 判分"同一套逻辑 ----
+# ---- code / mc 判定：复用与 eval 相同的判分器（reward/*），保证生成过滤与 eval 判分同一套逻辑 ----
 def extract_code(text):
     """取最后一个 ```python ... ``` 代码块；无围栏则退回整段（与 eval/eval_code.py 一致）。"""
     m = re.findall(r"```(?:python)?\s*(.*?)```", text, re.S)
@@ -72,8 +72,8 @@ def _reward_on_path():
 
 
 def verify_code(pred_text, gt):
-    """LiveCodeBench：抽代码 → prime_code 本地跑测试用例（复用 reward/code_reward.py），全部通过=True。
-    ⚠️ 会本地执行模型生成的代码（prime_code 自带超时）；共享服务器大规模造数据前建议起 sandbox。"""
+    """LiveCodeBench：抽代码 → prime_code 本地跑测试用例（复用 reward/code_reward.py），全部通过为 True。
+    会在本地执行模型生成的代码（prime_code 自带超时）；大规模造数据前建议启用 sandbox。"""
     _reward_on_path()
     from reward.code_reward import compute_score
 
@@ -110,10 +110,10 @@ class Teacher:
 
     def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True, system=None):
         """users: list[str] → list[list[dict(text, finish, ntok)]]。
-        finish=='length' 即撞 max_tokens 被截断——教师被截断＝拿坏数据去训练，必须能被统计到。
-        enable_thinking：推理目标步(standard/R_f/R_b/造解)保持 True 留完整 CoT；辅助解析步(造逆问题/
-        一致性判定/造题)必须传 False——否则 Qwen3 默认先吐 <think>，短输出步永远等不到 True/False。
-        system：任务三 prompt 轴给 standard_cot 换蒸馏风格的 system 指令；None=不加 system（默认，与原行为逐字节一致）。"""
+        finish=='length' 表示撞 max_tokens 被截断；被截断的教师输出不完整，需纳入统计。
+        enable_thinking：推理目标步(standard/R_f/R_b/造解)保持 True 以保留完整 CoT；辅助解析步(造逆问题/
+        一致性判定/造题)须传 False，否则 Qwen3 默认先输出 <think>，短输出步取不到 True/False。
+        system：为 standard_cot 提供 system 指令以切换蒸馏风格；None 表示不加 system（默认）。"""
         from vllm import SamplingParams
 
         def _msgs(u):
@@ -135,8 +135,8 @@ class Teacher:
 
 
 class APITeacher:
-    """OpenAI 兼容 API 后端（DeepSeek / 阿里 DashScope 等），接口与 Teacher.chat 一致——**仅 off-policy**。
-    reasoning 模型（如 deepseek-reasoner）的 reasoning_content 会并入 CoT。API key 从环境变量读，别写进代码。"""
+    """OpenAI 兼容 API 后端（DeepSeek / 阿里 DashScope 等），接口与 Teacher.chat 一致；仅用于 off-policy。
+    reasoning 模型（如 deepseek-reasoner）的 reasoning_content 会并入 CoT。API key 从环境变量读取，不写入代码。"""
 
     def __init__(self, base_url, model, api_key, workers=16):
         from openai import OpenAI
@@ -179,7 +179,7 @@ class APITeacher:
 
     def chat_full(self, users, temperature, max_tokens, n=1, enable_thinking=True, system=None):
         """与 Teacher.chat_full 同签名；API 端拿不到可靠的 finish_reason/token 数，故留空。
-        enable_thinking 仅为签名对齐——API 端 thinking 由所选 model 决定，此处不透传。"""
+        enable_thinking 仅为签名对齐，API 端 thinking 由所选 model 决定，此处不透传。"""
         return [[{"text": s, "finish": None, "ntok": None} for s in cs]
                 for cs in self.chat(users, temperature, max_tokens, n, system=system)]
 
@@ -195,11 +195,11 @@ def read_seed(path):
 def save(rows, out, n_seed, method):
     out = os.path.expanduser(out)
     os.makedirs(out, exist_ok=True)
-    if not rows:                                # 0 产出必是异常（thinking 没关/过滤过严/教师没起来）——拒绝写空/坏 schema parquet
+    if not rows:                                # 0 产出视为异常（thinking 未关 / 过滤过严 / 教师未就绪），不写空或坏 schema 的 parquet
         raise SystemExit(f"[{method}] 0 条产出，拒绝写空数据集：检查 thinking 开关、截断过滤、教师是否正常。")
     df = pd.DataFrame(rows)
-    # 打散再切 val：种子在 MATH 里常按 level 排序，不打散会让 val 全落在某难度；reverse 的三元组相邻，
-    # 打散也顺带把它们分开（val 仅用于 loss 监控，最终评测在 held-out OlymMATH，轻微相关无碍）。
+    # 打散后再切 val：MATH 种子常按 level 排序，不打散会使 val 全落在某一难度；reverse 的三元组相邻，
+    # 打散可将其分开（val 仅用于 loss 监控，最终评测在 held-out OlymMATH，轻微相关无妨）。
     if len(df) > 1:
         df = df.sample(frac=1.0, random_state=0).reset_index(drop=True)
     n_val = max(1, int(len(df) * 0.05)) if len(df) > 20 else 1
@@ -211,9 +211,9 @@ def save(rows, out, n_seed, method):
 
 
 def gen_stats(out, method, max_new, n_seed, n_kept, n_cand, n_trunc, ntoks):
-    """落盘生成侧良率/截断率/长度分布 → gen_stats.json。
-    教师被 max_new 截断会系统性丢掉"需要长推理的难题"，使蒸馏集偏向简单题；
-    这个偏差不做统计就完全不可见，所以每次造数据都必须留下这份记录。"""
+    """记录生成侧良率/截断率/长度分布 → gen_stats.json。
+    教师被 max_new 截断会系统性丢掉需要长推理的难题，使蒸馏集偏向简单题；
+    该偏差不统计则不可见，故每次造数据都保留此记录。"""
     ntoks = sorted(x for x in ntoks if x)
     q = (lambda r: ntoks[max(0, int(len(ntoks) * r) - 1)]) if ntoks else (lambda r: 0)
     st = {
@@ -240,10 +240,10 @@ def m_standard(t, items, a):
     rows, n_cand, n_trunc, ntoks = [], 0, 0, []
     for (q, gt), cands in zip(items, outs):
         keep = None
-        for c in cands:  # 留第一个"完整(未撞上限、含 \boxed) 且 答对"的
+        for c in cands:  # 留第一个"完整(未截断、含 \boxed)且答对"的候选
             n_cand += 1
             ntoks.append(c["ntok"])
-            if c["finish"] == "length":  # 截断的必然不完整，直接弃，别让半截 CoT 进训练集
+            if c["finish"] == "length":  # 截断即不完整，丢弃，避免半截 CoT 进入训练集
                 n_trunc += 1
                 continue
             if gt is not None and "\\boxed" in c["text"] and verify(c["text"], gt):
@@ -257,9 +257,9 @@ def m_standard(t, items, a):
 
 def m_shortest(t, items, a):
     """最短正确 CoT（Concise / Short-CoT 蒸馏）：每题采样 n 个候选，在"完整(未截断、含 \\boxed)且答对"的
-    候选里保留 token 最少的那个。测"短而对的 CoT 是否更利于小模型 + 天然抗截断"（依据 Less is More Tokens
-    arXiv:2509.05226、Concise Reasoning Big Gains arXiv:2505.19716 等）。与 m_standard 唯一差别：选【最短】
-    正确而非【第一个】正确；须 --n>1 才有选择空间（n=1 时退化为 standard）。原生带 <think>、天然 eval-clean。"""
+    候选里保留 token 最少的一个。测"短而对的 CoT 是否更利于小模型并抗截断"（参考 Less is More Tokens
+    arXiv:2509.05226、Concise Reasoning Big Gains arXiv:2505.19716 等）。与 m_standard 的差别在于选最短
+    正确而非第一个正确；须 --n>1 才有选择空间（n=1 时退化为 standard）。原生带 <think>，eval-clean。"""
     outs = t.chat_full([q for q, _ in items], a.temp, a.max_new, n=a.n, system=(a.sys_prompt or None))
     rows, n_cand, n_trunc, ntoks = [], 0, 0, []
     for (q, gt), cands in zip(items, outs):
@@ -267,7 +267,7 @@ def m_shortest(t, items, a):
         for c in cands:
             n_cand += 1
             ntoks.append(c["ntok"])
-            if c["finish"] == "length":  # 截断的必然不完整，弃（同 m_standard）
+            if c["finish"] == "length":  # 截断即不完整，丢弃（同 m_standard）
                 n_trunc += 1
                 continue
             if gt is not None and "\\boxed" in c["text"] and verify(c["text"], gt):
@@ -307,14 +307,14 @@ def m_reverse(t, items, a):
     kept = []
     for (q, gt), cs in zip(items, rf):
         c = cs[0]; n_cand += 1; ntoks.append(c["ntok"])
-        if c["finish"] == "length":                       # 截断的 R_f 丢弃，别让半截 CoT 进训练集
+        if c["finish"] == "length":                       # 截断的 R_f 丢弃，避免半截 CoT 进入训练集
             n_trunc += 1; continue
         if gt is not None and "\\boxed" in c["text"] and verify(c["text"], gt):
             kept.append((q, gt, c["text"]))
     if not kept:
         gen_stats(a.out, a.method, a.max_new, len(items), 0, n_cand, n_trunc, ntoks)
         return []
-    # Step2: 逆向问题 Q_b（短输出 512，不计入截断统计）；关 thinking + 剥残留 <think>，否则拿到的是带标签的推理垃圾
+    # Step2: 逆向问题 Q_b（短输出 512，不计入截断统计）；关 thinking 并剥残留 <think>，否则输出会混入思维内容
     qb = [strip_think(c[0]) for c in t.chat([I_BQ.format(q=q, a=gt) for q, gt, _ in kept],
                                             a.temp, 512, n=1, enable_thinking=False)]
     # Step3: 逆向推理 R_b，同样过滤截断
@@ -328,8 +328,8 @@ def m_reverse(t, items, a):
         con_users.append(I_CON.format(q1=q, a1=gt, q2=qbi,
                                       a2=(extract_boxed(c["text"]) or c["text"].strip()[-64:])))
     # Step4: 一致性过滤（A2 = R_b 的最终答案，应能在 Q1 中找到且正确）→ 组装多目标样本
-    # ⚠️ 关 thinking：一致性判定是短输出辅助步，Qwen3 默认会先吐 <think>，8~16token 全卡在思维块里
-    #    → 永远等不到 True/False → 全判 False → 0 留存（与 I_BQ 同因；曾漏修此处，导致 reverse 造 0）。
+    # 关 thinking：一致性判定为短输出辅助步，Qwen3 默认先输出 <think>，8~16 token 全在思维块内，
+    # 取不到 True/False，会全判 False 导致 0 留存（与 I_BQ 同因）。
     con = [strip_think(c[0]).strip().lower()
            for c in t.chat(con_users, 0.0, 16, n=1, enable_thinking=False)] if con_users else []
     rows = []
@@ -369,9 +369,9 @@ def m_qaug(t, items, a):
             n_cand += 1; ntoks.append(c["ntok"])
             if c["finish"] == "length":
                 n_trunc += 1; continue
-            # 先剥 <think>：thinking 未关时模型可能在思维块里复述格式标记，直接 re.search 会抽到污染文本
+            # 先剥 <think>：thinking 未关时模型可能在思维块内复述格式标记，不剥会解析到污染文本
             txt = strip_think(c["text"])
-            idx = txt.rfind("FINAL CREATED QUESTION:")        # 取最后一个标记=最终版
+            idx = txt.rfind("FINAL CREATED QUESTION:")        # 取最后一个标记即最终版
             if idx != -1:
                 nq = txt[idx + len("FINAL CREATED QUESTION:"):].strip()
                 if nq:
@@ -415,7 +415,7 @@ def m_code(t, items, a):
         for c in cands:
             n_cand += 1
             ntoks.append(c["ntok"])
-            if c["finish"] == "length":  # 截断的代码必不完整，弃
+            if c["finish"] == "length":  # 截断的代码不完整，丢弃
                 n_trunc += 1
                 continue
             if gt is not None and "```" in c["text"] and verify_code(c["text"], gt):
@@ -458,18 +458,18 @@ def main():
     ap.add_argument("--tp", type=int, default=2)
     ap.add_argument("--temp", type=float, default=0.6)
     ap.add_argument("--n", type=int, default=1)
-    # 默认顶到 Qwen3 的 max_position_embeddings=40960（不开 YaRN 的真实上限）：
-    # 教师被截断＝半截 CoT/丢失难题，是训练集的系统性偏差，绝不能为省时间默认调小。
-    # ⚠️ 8B 教师 bf16 权重 ~16.4G，单张 24G 卡放不下 40960 的 KV → 该默认值需 --tp 2；
-    #    只能用单卡时按 gen_stats.json 实测的 tok_p99 来定 --max_len/--max_new，别拍脑袋。
+    # 默认取 Qwen3 的 max_position_embeddings=40960（不开 YaRN 时的上限）：
+    # 教师被截断意味着半截 CoT / 丢失难题，是训练集的系统性偏差，不应为节省时间而调小。
+    # 8B 教师 bf16 权重约 16.4G，单张 24G 卡放不下 40960 的 KV，故该默认值需 --tp 2；
+    # 只能用单卡时，按 gen_stats.json 实测的 tok_p99 来定 --max_len/--max_new。
     ap.add_argument("--max_len", type=int, default=40960)
     ap.add_argument("--gpu_mem", type=float, default=0.85, help="vLLM 显存占比；与他人共卡时调低(如 0.7)")
     ap.add_argument("--max_new", type=int, default=38912)
-    # 任务三 prompt 轴：给 standard_cot 加 system 指令换蒸馏风格；空=默认(不加 system，与原行为逐字节一致)。
+    # 为 standard_cot 加 system 指令以切换蒸馏风格；空表示默认不加 system。
     ap.add_argument("--sys_prompt", default="",
                     help="任务三 prompt 轴：standard_cot 的 system 指令(改蒸馏风格)；空=默认无 system")
     ap.add_argument("--limit", type=int, default=0, help=">0 时只用前 N 条种子（调试/控预算）")
-    # —— API teacher（任务三双轴用；仅 off-policy）——
+    # —— API teacher（仅 off-policy）——
     ap.add_argument("--teacher_type", choices=["vllm", "api"], default="vllm")
     ap.add_argument("--api_base", default="https://api.deepseek.com",
                     help="OpenAI 兼容 base_url；DashScope=https://dashscope.aliyuncs.com/compatible-mode/v1")

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 环境自检 + verl 入口核对（M0→M1）。装完 env 先跑这个。
+# 环境自检 + verl 入口核对（M0→M1）。安装完环境后先运行本脚本。
 set -uo pipefail
 source "$(dirname "$0")/env.sh"
 mkdir -p "$LOGS/run"; exec > >(tee -a "$LOGS/run/$(basename "$0" .sh).log") 2>&1  # 全部输出落 $LOGS/run/

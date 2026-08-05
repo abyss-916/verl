@@ -1,18 +1,18 @@
-"""整段渲染的单轮 SFT 数据集 —— 修 Qwen3 `<think>` 在 verl 逐轮分词被剥的坑。
+"""整段渲染的单轮 SFT 数据集，修正 Qwen3 `<think>` 在 verl 逐轮分词中被剥除的问题。
 
-背景（2026-07-25 踩坑）：verl 默认 `MultiTurnSFTDataset` 对每条 assistant 消息【单独】套 chat 模板
-(`apply_chat_template(messages=[该条], ...)`)。Qwen3 模板会把**单条 assistant** 里的
-`<think>…</think>` 当"历史思考"剥掉（整段渲染 `[user, assistant]` 却保留——已实测）。
-于是把"<think>推理</think>解答"的蒸馏目标训成"只有解答"，模型学成**不思考**、在难题上崩
+背景：verl 默认 `MultiTurnSFTDataset` 对每条 assistant 消息单独套 chat 模板
+(`apply_chat_template(messages=[该条], ...)`)。Qwen3 模板会把单条 assistant 内的
+`<think>…</think>` 当作"历史思考"剥除（整段渲染 `[user, assistant]` 则保留，已实测）。
+这样"<think>推理</think>解答"的蒸馏目标被训成"只有解答"，模型学成不思考、在难题上退化
 (standard_cot SFT 后 OlymMATH pass@1 15.75%→2.13%，输出 22.9K→1.6K token、0/100 含 `<think>`)。
 
-本类：对【整段对话】`apply_chat_template`（保留 `<think>`）得到 input_ids；
-再对 prompt 部分（`messages[:-1]` + 生成提示）单独渲染，定 loss 边界 —— 只对 assistant 回复算 loss。
-prompt 必须是 full 的前缀，否则 fail-loud（绝不静默训错边界）。
+本类：对整段对话 `apply_chat_template`（保留 `<think>`）得到 input_ids；
+再对 prompt 部分（`messages[:-1]` + 生成提示）单独渲染，确定 loss 边界，仅对 assistant 回复计 loss。
+prompt 须是 full 的前缀，否则 fail-loud（不静默训练在错误边界上）。
 
-- 仅支持以 assistant 结尾的对话（本课题蒸馏数据都是单轮 user→assistant）。
+- 仅支持以 assistant 结尾的对话（本课题蒸馏数据均为单轮 user→assistant）。
 - 不改 verl 核心；通过 `data.custom_cls.path=<本文件> data.custom_cls.name=WholeConvSFTDataset` 挂载。
-- padding/truncation 分支与父类 `__getitem__` 保持一致，返回同结构。
+- padding/truncation 分支与父类 `__getitem__` 保持一致，返回相同结构。
 """
 
 import torch
@@ -33,8 +33,8 @@ class WholeConvSFTDataset(MultiTurnSFTDataset):
             f"{[m.get('role') for m in messages]}"
         )
 
-        # enable_thinking：仅当明确是 bool 才透传；'none'/None/其它一律不传，用模板默认
-        # （整段渲染默认即保留 <think>，已实测；且 bool('none')==True 是坑，必须避开）。
+        # enable_thinking：仅当明确为 bool 才透传；'none'/None/其它一律不传，用模板默认
+        # （整段渲染默认即保留 <think>，已实测；且 bool('none')==True，须避免误传）。
         et = self.enable_thinking[item] if self.enable_thinking is not None else self.enable_thinking_default
         kw = {**self.apply_chat_template_kwargs}
         if isinstance(et, bool):
@@ -44,13 +44,13 @@ class WholeConvSFTDataset(MultiTurnSFTDataset):
         full = self.tokenizer.apply_chat_template(
             messages, tools=tools, add_generation_prompt=False, tokenize=True, return_tensors="pt", **kw
         )[0]
-        # prompt = 到 assistant 生成提示为止（messages[:-1] + 生成提示）→ 定 loss 边界
+        # prompt = 到 assistant 生成提示为止（messages[:-1] + 生成提示），确定 loss 边界
         prompt = self.tokenizer.apply_chat_template(
             messages[:-1], tools=tools, add_generation_prompt=True, tokenize=True, return_tensors="pt", **kw
         )[0]
         plen = int(prompt.shape[0])
 
-        # 稳健校验：prompt 必须是 full 的前缀，否则 loss 边界对不齐 → fail-loud
+        # 校验：prompt 须是 full 的前缀，否则 loss 边界对不齐，fail-loud
         if plen >= int(full.shape[0]) or not torch.equal(full[:plen], prompt):
             raise ValueError(
                 f"[WholeConvSFTDataset] prompt 不是 full 的前缀，loss 边界无法对齐："

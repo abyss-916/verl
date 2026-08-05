@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# 折叠 LoRA → 完整 HF 模型（供 vLLM eval）。取代之前手工合并，可复现。
-#   verl model_merger 对 LoRA ckpt 只抽出 base + lora_adapter/（peft 格式）、【不折叠】；
+# 折叠 LoRA 为完整 HF 模型（供 vLLM eval），可复现。
+#   verl model_merger 对 LoRA ckpt 只抽出 base + lora_adapter/（peft 格式），不折叠；
 #   本脚本第 2 步用 peft merge_and_unload 把 adapter 折进权重，得到 $CKPT/sft_<法>_merged。
-#   第 3 步自检：merged 与 base 逐张量相对差 —— rel≥~1e-2 才说明 LoRA 真学到了
-#   （2026-07-26 曾因 LR=1e-5 欠拟合，merged≈base、rel~1e-4，eval 假性等于 base；此自检即为拦截该情形）。
+#   第 3 步自检：merged 与 base 逐张量相对差，rel 足够大才说明 LoRA 真正学到（LR 过小欠拟合时
+#   merged≈base、rel~1e-4，eval 会假性等于 base；此自检用于拦截该情形，阈值见第 3 步）。
 #
 # 用法（服务器，先 source env.sh；CPU 即可，无需 GPU）：
 #   METHODS="omni_standard_cot omni_reverse omni_question_aug" bash run/07_merge.sh
 # 单法：METHODS="omni_standard_cot" bash run/07_merge.sh
-set -uo pipefail   # 不加 -e：某法失败要跳过、不拖垮其余
+set -uo pipefail   # 不加 -e：某法失败时跳过，不影响其余
 source "$(dirname "$0")/env.sh"
 
-BASE=${BASE:-$MODELS/Qwen3-4B}                 # LoRA 冻结 base，故 base=原始 student。⚠ GRPO 叠 SFT-merged 时传 BASE=$CKPT/sft_<法>_merged，末尾自检才量的是 GRPO 增量而非 SFT+GRPO 合量
-PREFIX=${PREFIX-sft_}                           # ckpt 目录前缀（去冒号:空串也生效,非仅未设）：SFT=sft_（默认,向后兼容）；GRPO 传 PREFIX=grpo_ + METHODS=omni_<法>（或 PREFIX= 空 + METHODS=grpo_<法>）
+BASE=${BASE:-$MODELS/Qwen3-4B}                 # LoRA 冻结 base，故 base=原始 student。GRPO 叠在 SFT-merged 上时传 BASE=$CKPT/sft_<法>_merged，使末尾自检度量的是 GRPO 增量而非 SFT+GRPO 合量
+PREFIX=${PREFIX-sft_}                           # ckpt 目录前缀（用 - 而非 :- 使空串也生效，非仅未设时）：SFT=sft_（默认）；GRPO 传 PREFIX=grpo_ + METHODS=omni_<法>（或 PREFIX= 空 + METHODS=grpo_<法>）
 METHODS=${METHODS:-"omni_standard_cot omni_reverse omni_question_aug"}
 
 for M in $METHODS; do
@@ -45,9 +45,9 @@ AutoTokenizer.from_pretrained(base, trust_remote_code=True).save_pretrained(out)
 print("[merge] merged ->", out)
 PY
 
-  # 3) 自检：merged vs base 逐张量相对差（rel≳1e-3=学到了；~1e-4=没训动，须查 LR/数据）
-  #    阈值订正：rank-32 LoRA 低秩修正下单张量相对变化本在 ~1e-3 量级（Omni 三法实测 4–7e-3、
-  #    确有下降+权重移动），故判据为 1e-3 而非初设的 1e-2（后者对 LoRA 偏严、会误报"没训动"）。
+  # 3) 自检：merged vs base 逐张量相对差（rel≳1e-3 表示学到；~1e-4 表示未训动，须查 LR/数据）
+  #    阈值取 1e-3：rank-32 LoRA 低秩修正下单张量相对变化约在 1e-3 量级（Omni 三法实测 4–7e-3），
+  #    初设的 1e-2 对 LoRA 偏严、会误报"未训动"。
   python - "$BASE" "$OUT" <<'PY'
 import sys, glob, os, statistics as S
 from safetensors import safe_open

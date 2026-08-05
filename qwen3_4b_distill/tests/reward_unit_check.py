@@ -1,6 +1,6 @@
-"""reward 判分器单元自检（免 GPU、免数据集）：对合成的"正确解 / 错误解"断言 compute_score = 1.0 / 0.0。
-证明 code(prime_code 本地执行单测) / mc(抽字母比对) 的可验证奖励**真的在判分**，而非空壳——
-这是"code/MMLU 是真接入、不是只有 base eval"的最快证据（GRPO 用的正是同一个 compute_score）。
+"""reward 判分器单元自检（无需 GPU 与数据集）：对合成的正确解 / 错误解断言 compute_score = 1.0 / 0.0。
+验证 code（prime_code 本地执行单测）与 mc（抽字母比对）的可验证奖励确实在判分；
+GRPO 使用的是同一个 compute_score。
 
 用法：
   python tests/reward_unit_check.py --ability code    # 合成 stdin 题：读 n 打印 2n

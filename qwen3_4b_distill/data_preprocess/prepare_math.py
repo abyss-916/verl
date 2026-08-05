@@ -1,13 +1,13 @@
 """数学数据集 → verl RL parquet。改编自 verl/examples/data_preprocess/math_dataset.py。
 
-两种角色（高质量课题的关键：训练集与评测集严格分离）：
-  - SEED（训练/蒸馏种子/GRPO prompt）：数学训练集。主线用 Omni-MATH d4–5（难度匹配）；初期用 MATH-lighteval train（~7500，已饱和）。
-  - EVAL（held-out 评测）：OlymMATH 等，绝不进训练。
+区分两种角色，训练集与评测集严格分离以防泄漏：
+  - SEED（训练/蒸馏种子/GRPO prompt）：数学训练集，如 Omni-MATH、MATH-lighteval train。
+  - EVAL（held-out 评测）：如 OlymMATH，不进训练。
 
-答案自适应：OlymMATH 用纯 `answer` 列；MATH 用 `solution` 里的 \boxed 抽取。
-额外把 level/type/subject 存进 extra_info，供任务三做难度/领域切片归因。
+答案自适应：OlymMATH 用 `answer` 列；MATH 从 `solution` 的 \boxed 抽取。
+额外把 level/type/subject 存入 extra_info，供后续按难度/领域做切片分析。
 
-用法（服务器）：
+用法：
   # 种子（MATH train）
   python prepare_math.py --hf DigitalLearningGmbH/MATH-lighteval --subset default \
       --out /data/liujiachen/datasets/math_seed --data_source math_seed
@@ -27,7 +27,7 @@ import datasets
 INSTRUCTION = "Let's think step by step and output the final answer within \\boxed{}."
 
 Q_KEYS = ["problem", "question", "prompt", "query", "Problem", "Question"]
-A_KEYS = ["answer", "final_answer", "gold", "solution", "Answer", "Solution"]  # solution 放最后（MATH 无 answer 列时兜底）；大写兼容 AIME_2024 等
+A_KEYS = ["answer", "final_answer", "gold", "solution", "Answer", "Solution"]  # solution 置于末尾：MATH 无 answer 列时兜底；含大写键以兼容 AIME_2024 等
 META_KEYS = ["level", "type", "subject", "unique_id"]
 
 
@@ -79,8 +79,8 @@ def make_map_fn(split, data_source):
 def _load_split(source, hf, subset, split):
     """加载单个 split → HF Dataset。
     source=hf：走 datasets（HF/hf-mirror）；source=modelscope：走 MsDataset；
-    source=local：从本地目录按文件名匹配 parquet 加载（推荐——先把 parquet 抓到本地再来，绕开脚本型/多文件超时）。
-    hf 支持逗号分隔多个候选 id（modelscope 时逐个尝试，任一成功即返回）。
+    source=local：从本地目录按文件名匹配 parquet 加载，可绕开脚本型数据集与多文件加载超时。
+    hf 支持逗号分隔的多个候选 id（modelscope 时逐个尝试，任一成功即返回）。
     """
     if source == "local":
         import glob as _glob
@@ -90,7 +90,7 @@ def _load_split(source, hf, subset, split):
             raise FileNotFoundError(f"本地无 {split} 的 parquet: {hf}")
         return datasets.load_dataset("parquet", data_files=files)["train"]
     if source == "modelscope":
-        # 用 modelscope CLI 整仓下载 parquet 到本地(国内稳、不执行脚本、不受 datasets 5.0 脚本禁令影响)，再读本地 parquet。
+        # 用 modelscope CLI 整仓下载 parquet 到本地，再读本地 parquet：不执行脚本，规避 datasets 5.0 的脚本加载禁令。
         import glob as _glob
         import subprocess
 
@@ -101,7 +101,7 @@ def _load_split(source, hf, subset, split):
             pat = os.path.join(local, "**", f"*{split}*.parquet")
             try:
                 files = sorted(_glob.glob(pat, recursive=True))
-                if not files:  # 尚未下过 → 整仓拉一次(train/test 一起下)，后续 split 直接命中缓存
+                if not files:  # 尚未下过则整仓拉取一次(train/test 一起下)，后续 split 命中本地缓存
                     subprocess.run(["modelscope", "download", "--dataset", hid, "--local_dir", local], check=True)
                     files = sorted(_glob.glob(pat, recursive=True))
                 if not files:
@@ -139,7 +139,7 @@ def main():
     a = ap.parse_args()
 
     subset = a.subset or None
-    # 独立加载 train / test：容忍某 split 缺失（OlymMATH 无 train → 复用 test，仅占位不训练）
+    # 独立加载 train / test，容忍某 split 缺失（如 OlymMATH 无 train）
     train_ds = test_ds = None
     for split in ("train", "test"):
         try:
@@ -159,15 +159,15 @@ def main():
     os.makedirs(out, exist_ok=True)
     keep = ["data_source", "prompt", "ability", "reward_model", "extra_info"]
 
-    # ⚠️ 只写真正加载到的 split：eval-only 数据集(OlymMATH 只有 test)【绝不】把 test 复制成 train.parquet，
-    #    否则被误当种子蒸馏 = 评测集泄漏(蒸出的 CoT 训到 held-out 题上，分数假性冲顶)。
+    # 只写实际加载到的 split：eval-only 数据集（如 OlymMATH 仅有 test）不把 test 复制成 train.parquet，
+    # 否则会被当作蒸馏种子，导致评测集泄漏（蒸出的 CoT 训练到 held-out 题目上）。
     for name, d0 in [("train", train_ds), ("test", test_ds)]:
         if d0 is None:
             print(f"[skip] 无 {name} split → 不写 {name}.parquet（不拿另一 split 顶替，避免泄漏陷阱）", flush=True)
             continue
         d = d0.map(make_map_fn(name, a.data_source), with_indices=True)
         n0 = len(d)
-        # 丢无答案行：to_answer(None) 会让 ground_truth 变字符串 "None"，judge 恒判 0（eval 假性压分 / GRPO 该 prompt 永远 0 reward）
+        # 丢弃无答案行：to_answer(None) 使 ground_truth 变成字符串 "None"，judge 恒判 0（拉低 eval 分数 / GRPO 该 prompt 永远 0 reward）
         d = d.filter(lambda ex: ex["reward_model"]["ground_truth"] not in ("None", "", "none"))
         if len(d) != n0:
             print(f"[warn] {name}: 丢弃 {n0 - len(d)} 无答案行", flush=True)

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# On-Policy Distillation（加分/stretch）| student Qwen3-4B ← teacher Qwen3-8B | 2×3090
+# On-Policy Distillation（扩展项）| student Qwen3-4B ← teacher Qwen3-8B | 2×3090
 # 改编自 verl/examples/on_policy_distillation_trainer/run_qwen3_8b_fsdp.sh
-# ⚠️ 2×3090(48GB) 上 teacher(8B)+student(4B)+vLLM 显存极紧，很可能 OOM。
-#    必须 TEST=1 起；OOM 就退回 train/sft.sh（off-policy 序列蒸馏），把 OPD 作"尝试+分析"写进报告。
+# 2×3090(48GB) 上 teacher(8B)+student(4B)+vLLM 显存极紧，可能 OOM。
+#    先以 TEST=1 起；若 OOM 则退回 train/sft.sh（off-policy 序列蒸馏），将 OPD 作为尝试与分析写入报告。
 set -xeuo pipefail
 
 STUDENT_MODEL=${STUDENT_MODEL:-/data/liujiachen/models/Qwen3-4B}
 TEACHER_MODEL=${TEACHER_MODEL:-/data/liujiachen/models/Qwen3-8B}
-# ⚠️ 同 grpo.sh：训练 prompt 用 MATH 种子，olymmath 是 held-out 评测集，只做 VAL 监控，绝不进训练。
+# 同 grpo.sh：训练 prompt 用 MATH 种子，olymmath 为 held-out 评测集，仅做 VAL 监控，不进训练。
 TRAIN_DIR=${TRAIN_DIR:-/data/liujiachen/datasets/math_seed}
 VAL_DIR=${VAL_DIR:-/data/liujiachen/datasets/olymmath}
 EXP=${EXP:-opd_4b_from_8b}
@@ -15,7 +15,7 @@ CKPT=${CKPT:-/data/liujiachen/checkpoints}
 SAVE=${SAVE:-$CKPT/$EXP}
 
 NGPUS=${NGPUS:-2}                       # student/trainer 资源
-TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}   # teacher 独立推理池（尽量压 1 卡）
+TEACHER_WORLD_SIZE=${TEACHER_WORLD_SIZE:-1}   # teacher 独立推理池（尽量用 1 卡）
 LOSS_MODE=${LOSS_MODE:-forward_kl_topk} # 纯蒸馏(GKD-OPD)；带 PG 用 k1/k3 + USE_PG=True
 USE_PG=${USE_PG:-False}
 TOPK=${TOPK:-64}
@@ -75,5 +75,5 @@ python3 -m verl.trainer.main_ppo \
   trainer.logger='["console","wandb"]' \
   "$@"
 
-# 硬约束：teacher 与 student 必须同 tokenizer/词表（Qwen3-4B + Qwen3-8B 满足）。
-# forward_kl_topk = 纯 on-policy 蒸馏（对齐 teacher top-k 分布）；想要 PG-OPD 设 LOSS_MODE=k1 USE_PG=True。
+# 约束：teacher 与 student 须同 tokenizer/词表（Qwen3-4B + Qwen3-8B 满足）。
+# forward_kl_topk = 纯 on-policy 蒸馏（对齐 teacher top-k 分布）；PG-OPD 设 LOSS_MODE=k1 USE_PG=True。
