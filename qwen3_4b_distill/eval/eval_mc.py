@@ -46,7 +46,8 @@ def main():
     ap.add_argument("--gpu_mem", type=float, default=0.8, help="vLLM 显存占比;与他人共卡时调低(如 0.7)")
     ap.add_argument("--temp", type=float, default=0.6)
     ap.add_argument("--top_p", type=float, default=0.95)
-    ap.add_argument("--max_new", type=int, default=16384, help="thinking+答案;截断率高就调大")
+    ap.add_argument("--top_k", type=int, default=20)
+    ap.add_argument("--max_new", type=int, default=38912, help="满生成预算（thinking+答案）；对齐 eval_math/报告")
     ap.add_argument("--no_thinking", action="store_true")
     ap.add_argument("--limit", type=int, default=0)
     # 多卡分片：df.iloc[shard::num_shards] 交错切开，各卡一片、各自 --out，最后 merge_shards.py 合并
@@ -84,7 +85,7 @@ def main():
     max_model_len = min(40960, a.max_new + max_prompt + 256)
     llm = LLM(model=a.model, trust_remote_code=True, tensor_parallel_size=a.tp,
               gpu_memory_utilization=a.gpu_mem, max_model_len=max_model_len)
-    outs = llm.generate(prompts, SamplingParams(temperature=a.temp, top_p=a.top_p, max_tokens=a.max_new, n=a.n))
+    outs = llm.generate(prompts, SamplingParams(temperature=a.temp, top_p=a.top_p, top_k=a.top_k, max_tokens=a.max_new, n=a.n))
 
     out = os.path.expanduser(a.out)
     os.makedirs(out, exist_ok=True)
