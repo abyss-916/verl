@@ -29,12 +29,19 @@ sharded_eval() {
   echo "---- [$tag] 完成 → $out/summary.json ----"
 }
 
+# 数据为一次性接入（见 run/download.sh data / prepare_code.py --source local / prepare_mc.py）；此处只评测、不重新 prepare。
 # ── code：LiveCodeBench（167 题防污染窗，全量，avg@4）──
-python "$PROJ/data_preprocess/prepare_code.py" --version "$CODE_VERSION" --out "$DATA/livecodebench" || true
-sharded_eval eval_code.py "$DATA/livecodebench/test.parquet" "$LOGS/eval/lcb_base" "$CODE_LIMIT" "$CODE_N" || true
+if [ -f "$DATA/livecodebench/test.parquet" ]; then
+  sharded_eval eval_code.py "$DATA/livecodebench/test.parquet" "$LOGS/eval/lcb_base" "$CODE_LIMIT" "$CODE_N" || true
+else
+  echo "!! 跳过 code：缺 $DATA/livecodebench/test.parquet（先接入：prepare_code.py --source local）"
+fi
 
 # ── mc：MMLU-Pro（2000 题，n=1）──
-python "$PROJ/data_preprocess/prepare_mc.py" --hf "$MMLU_PRO_HF" --subset default --out "$DATA/mmlu_pro" --data_source mmlu_pro || true
-sharded_eval eval_mc.py "$DATA/mmlu_pro/test.parquet" "$LOGS/eval/mmlu_pro_base" "$MC_LIMIT" "$MC_N" || true
+if [ -f "$DATA/mmlu_pro/test.parquet" ]; then
+  sharded_eval eval_mc.py "$DATA/mmlu_pro/test.parquet" "$LOGS/eval/mmlu_pro_base" "$MC_LIMIT" "$MC_N" || true
+else
+  echo "!! 跳过 mc：缺 $DATA/mmlu_pro/test.parquet（先接入：run/download.sh data 或 prepare_mc.py）"
+fi
 
 echo "扩展 benchmark base eval 完成，见 $LOGS/eval/{lcb,mmlu_pro}_base"
