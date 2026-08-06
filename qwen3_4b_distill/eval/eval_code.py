@@ -37,7 +37,7 @@ def main():
     ap.add_argument("--n", type=int, default=1)
     ap.add_argument("--k", type=int, default=0)
     ap.add_argument("--tp", type=int, default=1)
-    ap.add_argument("--gpu_mem", type=float, default=0.85, help="vLLM 显存占比；与他人共卡时调低")
+    ap.add_argument("--gpu_mem", type=float, default=0.8, help="vLLM 显存占比；与他人共卡时调低(如 0.7)")
     ap.add_argument("--temp", type=float, default=0.6)
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--max_new", type=int, default=16384, help="thinking+代码；截断率高就调大")
